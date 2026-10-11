@@ -38,10 +38,11 @@ function makeDataset(
   }
 }
 
-function renderSelection(initialPath: string) {
+function renderSelection(initialPath: string, state?: unknown) {
+  const url = new URL(initialPath, 'http://localhost')
   return render(
     <FluentProvider theme={webLightTheme}>
-      <MemoryRouter initialEntries={[initialPath]}>
+      <MemoryRouter initialEntries={[{ pathname: url.pathname, search: url.search, state }]}>
         <Routes>
           <Route path="/datasets" element={<p>Catalog</p>} />
           <Route path="/datasets/detail" element={<DatasetSelection />} />
@@ -71,7 +72,7 @@ describe('DatasetSelection', () => {
 
     const heading = await screen.findByRole('heading', { level: 1, name: 'harmbench' })
     await waitFor(() => expect(heading).toHaveFocus())
-    expect(screen.getByText('Individual examples are not listed in this view.')).toBeInTheDocument()
+    expect(screen.getByText(/Individual examples are not yet listed in this view\.\s+We are still building this experience\./)).toBeInTheDocument()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'harmbench' })).not.toBeInTheDocument()
   })
@@ -132,7 +133,16 @@ describe('DatasetSelection', () => {
     renderSelection(datasetDetailPath(LOADED.selection_key))
     await screen.findByRole('heading', { level: 1, name: 'harmbench' })
 
+    expect(screen.getByRole('link', { name: 'Back to datasets' })).toHaveAttribute('href', '/datasets')
     await user.click(screen.getByRole('link', { name: 'Back to datasets' }))
     expect(await screen.findByText('Catalog')).toBeInTheDocument()
+  })
+
+  it('ignores a return path that is not the datasets catalog', async () => {
+    renderSelection(datasetDetailPath(LOADED.selection_key), {
+      catalogPath: 'https://evil.example/datasets?q=policy',
+    })
+
+    expect(await screen.findByRole('link', { name: 'Back to datasets' })).toHaveAttribute('href', '/datasets')
   })
 })

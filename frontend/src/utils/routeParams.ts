@@ -92,3 +92,41 @@ export function datasetDetailPath(selectionKey: string): string {
   params.set(SELECTION_KEY_PARAM, selectionKey)
   return `${DATASET_DETAIL_PATH}?${params.toString()}`
 }
+
+const CATALOG_PATH_STATE_KEY = 'catalogPath'
+
+/**
+ * Reads a same-app catalog return path from navigation state.
+ * Anything that is not exactly `/datasets` plus an optional query falls back
+ * to the catalog root so this value cannot be used as an open redirect.
+ */
+export function catalogPathFromNavigationState(state: unknown): string {
+  if (state == null || typeof state !== 'object' || !(CATALOG_PATH_STATE_KEY in state)) {
+    return DATASETS_PATH
+  }
+  const candidate = (state as { catalogPath?: unknown }).catalogPath
+  if (typeof candidate !== 'string' || !isCatalogReturnPath(candidate)) {
+    return DATASETS_PATH
+  }
+  return candidate
+}
+
+function isCatalogReturnPath(value: string): boolean {
+  if (value !== DATASETS_PATH && !value.startsWith(`${DATASETS_PATH}?`)) return false
+  if (value.includes('\\') || value.includes('#') || value.includes('://')) return false
+  for (const character of value) {
+    const code = character.charCodeAt(0)
+    if (code <= 31 || code === 127) return false
+  }
+  let url: URL
+  try {
+    url = new URL(value, 'http://pyrit.local')
+  } catch {
+    return false
+  }
+  return url.origin === 'http://pyrit.local'
+    && url.username === ''
+    && url.password === ''
+    && url.pathname === DATASETS_PATH
+    && url.hash === ''
+}

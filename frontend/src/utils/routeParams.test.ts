@@ -1,6 +1,7 @@
 import {
   attackConversationRoutePath,
   attackRoutePath,
+  catalogPathFromNavigationState,
   DATASET_DETAIL_PATH,
   datasetDetailPath,
   routerPathParamValue,
@@ -97,5 +98,17 @@ describe('dataset detail paths', () => {
     expect(selectionKeyFromSearchParams(new URLSearchParams())).toBeNull()
     expect(selectionKeyFromSearchParams(new URLSearchParams('selection_key=one&selection_key=two'))).toBeNull()
     expect(selectionKeyFromSearchParams(new URLSearchParams('selection_key='))).toBe('')
+  })
+
+  it('keeps a same-app catalog path and rejects anything else', () => {
+    const filtered = '/datasets?q=policy&modality=text&sort=logical_examples_desc'
+    expect(catalogPathFromNavigationState({ catalogPath: filtered })).toBe(filtered)
+    expect(catalogPathFromNavigationState({ catalogPath: '/datasets' })).toBe('/datasets')
+    expect(catalogPathFromNavigationState(null)).toBe('/datasets')
+    expect(catalogPathFromNavigationState({})).toBe('/datasets')
+    expect(catalogPathFromNavigationState({ catalogPath: 'https://evil.example/datasets' })).toBe('/datasets')
+    expect(catalogPathFromNavigationState({ catalogPath: '//evil.example/datasets' })).toBe('/datasets')
+    expect(catalogPathFromNavigationState({ catalogPath: '/datasets/detail?selection_key=dataset:unnamed' })).toBe('/datasets')
+    expect(catalogPathFromNavigationState({ catalogPath: '/datasets/../admin' })).toBe('/datasets')
   })
 })

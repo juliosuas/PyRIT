@@ -141,6 +141,9 @@ describe('DatasetCatalog', () => {
       'href',
       datasetDetailPath('dataset:named:harmbench'),
     )
+    expect(within(loaded).getByRole('link', { name: 'harmbench' })).toHaveAccessibleDescription(
+      'Opens this dataset. Individual examples are not yet listed in this view. We are still building this experience.',
+    )
     expect(within(loaded).queryByText('Loaded')).not.toBeInTheDocument()
     expect(within(loaded).queryByText('Not loaded')).not.toBeInTheDocument()
     expect(within(loaded).queryByText('Provider available')).not.toBeInTheDocument()
@@ -199,6 +202,25 @@ describe('DatasetCatalog', () => {
     expect(mockGet).toHaveBeenCalledTimes(2)
   })
 
+  it('keeps one live status through results, no matches, and clearing the search', async () => {
+    const user = userEvent.setup()
+    render(<Harness initialPath="/datasets" />)
+
+    const catalog = await screen.findByTestId('dataset-catalog')
+    const status = await within(catalog).findByRole('status')
+    expect(status).toHaveTextContent('3 datasets')
+
+    await user.type(screen.getByRole('textbox', { name: 'Search datasets' }), 'does-not-exist')
+
+    expect(status).toHaveTextContent('No datasets match "does-not-exist"')
+    expect(within(catalog).getByRole('status')).toBe(status)
+
+    await user.clear(screen.getByRole('textbox', { name: 'Search datasets' }))
+
+    expect(status).toHaveTextContent('3 datasets')
+    expect(within(catalog).getByRole('status')).toBe(status)
+  })
+
   it('filters by name and reports no matches without rendering the query as HTML', async () => {
     const user = userEvent.setup()
     render(<Harness initialPath="/datasets" />)
@@ -218,6 +240,33 @@ describe('DatasetCatalog', () => {
     await user.click(screen.getByRole('button', { name: 'Clear filters' }))
     expect(await screen.findByRole('link', { name: 'harmbench' })).toBeInTheDocument()
     expect(currentUrl().search).toBe('')
+  })
+
+  it('keeps catalog filters when the back link returns from a card', async () => {
+    const user = userEvent.setup()
+    mockCatalog([
+      makeDataset({
+        name: 'policy bench',
+        selection_key: 'dataset:named:policy',
+        modalities: ['text'],
+      }),
+    ])
+    render(<Harness initialPath="/datasets?q=policy&modality=text&sort=logical_examples_desc" />)
+
+    await user.click(await screen.findByRole('link', { name: 'policy bench' }))
+    expect(await screen.findByRole('heading', { level: 1, name: 'policy bench' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Back to datasets' })).toHaveAttribute(
+      'href',
+      '/datasets?q=policy&modality=text&sort=logical_examples_desc',
+    )
+
+    await user.click(screen.getByRole('link', { name: 'Back to datasets' }))
+
+    expect(await screen.findByRole('link', { name: 'policy bench' })).toBeInTheDocument()
+    expect(currentUrl().pathname).toBe('/datasets')
+    expect(currentUrl().searchParams.get('q')).toBe('policy')
+    expect(currentUrl().searchParams.get('modality')).toBe('text')
+    expect(currentUrl().searchParams.get('sort')).toBe('logical_examples_desc')
   })
 
   it('shows the no-match copy when only facets exclude every dataset', async () => {
@@ -418,7 +467,7 @@ describe('Dataset selection keys', () => {
       expect(currentUrl().hash).toBe('')
       expect(currentUrl().searchParams.get('selection_key')).toBe(selectionKey)
       expect(screen.queryByRole('table')).not.toBeInTheDocument()
-      expect(screen.getByText('Individual examples are not listed in this view.')).toBeInTheDocument()
+      expect(screen.getByText(/Individual examples are not yet listed in this view\.\s+We are still building this experience\./)).toBeInTheDocument()
 
       await user.click(screen.getByRole('button', { name: 'Refresh page' }))
       expect(await screen.findByRole('heading', { level: 1, name: displayName })).toBeInTheDocument()

@@ -82,6 +82,11 @@ export default function DatasetCatalog() {
   }
 
   const resultLabel = filtered.length === 1 ? '1 dataset' : `${filtered.length} datasets`
+  const statusLabel = filtered.length === 0
+    ? (query.search.trim()
+      ? `No datasets match "${query.search.trim()}"`
+      : 'No datasets match these filters')
+    : resultLabel
 
   return (
     <section className={styles.root} aria-labelledby={titleId} data-testid="dataset-catalog">
@@ -184,25 +189,22 @@ export default function DatasetCatalog() {
             Datasets show up here after they are loaded into memory. This view does not download them.
           </Text>
         </div>
-      ) : filtered.length === 0 ? (
-        <div className={styles.centeredState}>
-          <Text size={400}>
-            {query.search.trim()
-              ? `No datasets match "${query.search.trim()}"`
-              : 'No datasets match these filters'}
-          </Text>
-          <Text size={200}>Clear the search or filters to see every loaded dataset.</Text>
-        </div>
       ) : (
         <>
-          <Text className={styles.resultCount} role="status" aria-live="polite">{resultLabel}</Text>
-          <ul className={styles.grid} aria-label="Datasets">
-            {filtered.map((dataset) => (
-              <li key={dataset.selection_key}>
-                <DatasetCard dataset={dataset} linked headingLevel="h2" />
-              </li>
-            ))}
-          </ul>
+          <Text className={styles.resultCount} role="status" aria-live="polite">{statusLabel}</Text>
+          {filtered.length === 0 ? (
+            <div className={styles.centeredState}>
+              <Text size={200}>Clear the search or filters to see every loaded dataset.</Text>
+            </div>
+          ) : (
+            <ul className={styles.grid} aria-label="Datasets">
+              {filtered.map((dataset) => (
+                <li key={dataset.selection_key}>
+                  <DatasetCard dataset={dataset} linked headingLevel="h2" />
+                </li>
+              ))}
+            </ul>
+          )}
         </>
       )}
     </section>

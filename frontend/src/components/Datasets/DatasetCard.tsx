@@ -1,7 +1,7 @@
 import { useId, type Ref } from 'react'
 
 import { Badge, Text } from '@fluentui/react-components'
-import { Link } from 'react-router'
+import { Link, useLocation } from 'react-router'
 
 import type { DatasetInfo } from '@/types'
 import { datasetDetailPath } from '@/utils/routeParams'
@@ -37,9 +37,11 @@ function StoredValues({ values, unlabeled = false }: StoredValuesProps) {
   return (
     <div className={styles.badges}>
       {values.map((value, index) => (
-        <Badge key={`${index}:${value}`} appearance="outline">{value}</Badge>
+        <Badge key={`${index}:${value}`} className={styles.valueBadge} appearance="outline">{value}</Badge>
       ))}
-      {unlabeled && <Badge appearance="outline">{NOT_LABELED_LABEL}</Badge>}
+      {unlabeled && (
+        <Badge className={styles.valueBadge} appearance="outline">{NOT_LABELED_LABEL}</Badge>
+      )}
     </div>
   )
 }
@@ -52,9 +54,11 @@ export default function DatasetCard({
   headingRef,
 }: DatasetCardProps) {
   const styles = useDatasetCardStyles()
+  const location = useLocation()
   const titleId = useId()
   const descriptionId = useId()
   const HeadingTag = headingLevel
+  const catalogPath = `${location.pathname}${location.search}`
 
   return (
     <article
@@ -72,6 +76,7 @@ export default function DatasetCard({
           {linked ? (
             <Link
               to={datasetDetailPath(dataset.selection_key)}
+              state={{ catalogPath }}
               className={styles.cardLink}
               aria-describedby={descriptionId}
             >
@@ -82,7 +87,7 @@ export default function DatasetCard({
       )}
       {linked && (
         <span id={descriptionId} className={styles.visuallyHidden}>
-          Opens this dataset. Individual examples are not listed in this view.
+          Opens this dataset. Individual examples are not yet listed in this view. We are still building this experience.
         </span>
       )}
       <dl className={styles.counts} aria-label="Counts">

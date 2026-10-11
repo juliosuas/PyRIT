@@ -2,6 +2,7 @@ import { makeStyles, tokens } from '@fluentui/react-components'
 
 import {
   mobileTouchTarget,
+  mobileTouchTargetHeight,
   NARROW_VIEWPORT_QUERY,
   TOUCH_INPUT_QUERY,
   MINIMUM_TOUCH_TARGET_SIZE,
@@ -67,6 +68,13 @@ export const useDatasetCatalogStyles = makeStyles({
   },
   filterControl: {
     minWidth: '12rem',
+    ...mobileTouchTargetHeight,
+    '& > input, & select': {
+      [TOUCH_INPUT_QUERY]: {
+        height: MINIMUM_TOUCH_TARGET_SIZE,
+        minHeight: MINIMUM_TOUCH_TARGET_SIZE,
+      },
+    },
     [NARROW_VIEWPORT_QUERY]: {
       minWidth: 0,
       flex: '1 1 12rem',

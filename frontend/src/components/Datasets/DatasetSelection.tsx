@@ -2,10 +2,10 @@ import { useEffect, useRef } from 'react'
 
 import { Button, MessageBar, MessageBarBody, Spinner, Text } from '@fluentui/react-components'
 import { ArrowSyncRegular } from '@fluentui/react-icons'
-import { Link, useSearchParams } from 'react-router'
+import { Link, useLocation, useSearchParams } from 'react-router'
 
 import { useLoadedDatasets } from '@/hooks/useLoadedDatasets'
-import { DATASETS_PATH, selectionKeyFromSearchParams } from '@/utils/routeParams'
+import { catalogPathFromNavigationState, selectionKeyFromSearchParams } from '@/utils/routeParams'
 
 import DatasetCard from './DatasetCard'
 import { useDatasetSelectionStyles } from './DatasetSelection.styles'
@@ -25,8 +25,10 @@ export default function DatasetSelection() {
   const styles = useDatasetSelectionStyles()
   const headingRef = useRef<HTMLHeadingElement>(null)
   const retryRef = useRef<HTMLButtonElement>(null)
+  const location = useLocation()
   const [searchParams] = useSearchParams()
   const selectionKey = selectionKeyFromSearchParams(searchParams)
+  const catalogPath = catalogPathFromNavigationState(location.state)
   const { datasets, loading, error, retry } = useLoadedDatasets()
   const dataset = selectionKey == null
     ? undefined
@@ -51,7 +53,7 @@ export default function DatasetSelection() {
 
   return (
     <section className={styles.root} aria-labelledby="dataset-selection-title">
-      <Link className={styles.backLink} to={DATASETS_PATH}>Back to datasets</Link>
+      <Link className={styles.backLink} to={catalogPath}>Back to datasets</Link>
       <h1 id="dataset-selection-title" ref={headingRef} tabIndex={-1} className={styles.title}>
         {title}
       </h1>
@@ -72,7 +74,8 @@ export default function DatasetSelection() {
             <DatasetCard dataset={dataset} linked={false} />
           </div>
           <p className={styles.note}>
-            Individual examples are not listed in this view.
+            Individual examples are not yet listed in this view.
+            We are still building this experience.
           </p>
         </>
       ) : (

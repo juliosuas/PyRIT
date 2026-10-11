@@ -42,7 +42,22 @@ export const useDatasetCardStyles = makeStyles({
   badges: {
     display: 'flex',
     flexWrap: 'wrap',
+    alignItems: 'flex-start',
     gap: tokens.spacingHorizontalXS,
+    minWidth: 0,
+    maxWidth: '100%',
+  },
+  valueBadge: {
+    '&&': {
+      maxWidth: '100%',
+      minWidth: 0,
+      height: 'auto',
+      minHeight: '20px',
+      whiteSpace: 'normal',
+      overflowWrap: 'anywhere',
+      wordBreak: 'break-word',
+      textAlign: 'start',
+    },
   },
   counts: {
     display: 'grid',
