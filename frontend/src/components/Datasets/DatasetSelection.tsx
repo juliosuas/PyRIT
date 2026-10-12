@@ -8,6 +8,7 @@ import { useLoadedDatasets } from '@/hooks/useLoadedDatasets'
 import { catalogPathFromNavigationState, selectionKeyFromSearchParams } from '@/utils/routeParams'
 
 import DatasetCard from './DatasetCard'
+import SeedExampleBrowser from './SeedExampleBrowser'
 import { useDatasetSelectionStyles } from './DatasetSelection.styles'
 
 const MAX_SHOWN_SELECTION_KEY_LENGTH = 80
@@ -18,8 +19,8 @@ function shownSelectionKey(selectionKey: string): string {
 }
 
 /**
- * Navigation contract for a later prompt table. The selection key is compared
- * with the catalog response and is not sent to a seed endpoint.
+ * Selected dataset summary plus a read-only example table.
+ * A missing or repeated selection key does not choose a dataset or request seeds.
  */
 export default function DatasetSelection() {
   const styles = useDatasetSelectionStyles()
@@ -29,7 +30,7 @@ export default function DatasetSelection() {
   const [searchParams] = useSearchParams()
   const selectionKey = selectionKeyFromSearchParams(searchParams)
   const catalogPath = catalogPathFromNavigationState(location.state)
-  const { datasets, loading, error, retry } = useLoadedDatasets()
+  const { datasets, loading, error, retry, refresh } = useLoadedDatasets()
   const dataset = selectionKey == null
     ? undefined
     : datasets.find((item) => item.selection_key === selectionKey)
@@ -73,10 +74,9 @@ export default function DatasetSelection() {
           <div className={styles.summary}>
             <DatasetCard dataset={dataset} linked={false} />
           </div>
-          <p className={styles.note}>
-            Individual examples are not yet listed in this view.
-            We are still building this experience.
-          </p>
+          <div className={styles.browser}>
+            <SeedExampleBrowser dataset={dataset} onCatalogStale={refresh} />
+          </div>
         </>
       ) : (
         <>

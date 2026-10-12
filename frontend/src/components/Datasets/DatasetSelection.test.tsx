@@ -12,14 +12,35 @@ import DatasetSelection from './DatasetSelection'
 
 let mockGet: jest.SpyInstance
 
+const EMPTY_SEED_PAGE = {
+  items: [],
+  pagination: { limit: 20, has_more: false, next_cursor: null, prev_cursor: null },
+  total: 0,
+}
+
 function expectOnlyLoadedDatasetGets(): void {
-  expect(mockGet.mock.calls.length).toBeGreaterThan(0)
-  for (const call of mockGet.mock.calls) {
-    expect(call[0]).toBe('/datasets')
+  const catalogCalls = mockGet.mock.calls.filter((call) => call[0] === '/datasets')
+  expect(catalogCalls.length).toBeGreaterThan(0)
+  for (const call of catalogCalls) {
     expect(call[1]).toEqual(expect.objectContaining({
       params: { loaded_only: true },
     }))
   }
+  for (const call of mockGet.mock.calls) {
+    const url = String(call[0])
+    if (url === '/datasets') continue
+    expect(url === '/datasets/seeds' || url.startsWith('/datasets/seeds/')).toBe(true)
+    const params = (call[1] as { params?: Record<string, unknown> } | undefined)?.params
+    expect(typeof params?.selection_key).toBe('string')
+    expect(params?.selection_key).not.toBe('')
+    expect(params).not.toHaveProperty('q')
+    expect(params).not.toHaveProperty('sort')
+    expect(params).not.toHaveProperty('unlabeled')
+  }
+}
+
+function seedCalls(): unknown[][] {
+  return mockGet.mock.calls.filter((call) => String(call[0]).startsWith('/datasets/seeds'))
 }
 
 function makeDataset(
@@ -59,7 +80,12 @@ const LOADED = makeDataset({
 
 describe('DatasetSelection', () => {
   beforeEach(() => {
-    mockGet = jest.spyOn(apiClient, 'get').mockResolvedValue({ data: { items: [LOADED] } })
+    mockGet = jest.spyOn(apiClient, 'get').mockImplementation((url: string) => {
+      if (url === '/datasets/seeds' || url.startsWith('/datasets/seeds/')) {
+        return Promise.resolve({ data: EMPTY_SEED_PAGE })
+      }
+      return Promise.resolve({ data: { items: [LOADED] } })
+    })
   })
 
   afterEach(() => {
@@ -72,8 +98,13 @@ describe('DatasetSelection', () => {
 
     const heading = await screen.findByRole('heading', { level: 1, name: 'harmbench' })
     await waitFor(() => expect(heading).toHaveFocus())
-    expect(screen.getByText(/Individual examples are not yet listed in this view\.\s+We are still building this experience\./)).toBeInTheDocument()
+    expect(await screen.findByText('No examples in this dataset')).toBeInTheDocument()
+    expect(screen.queryByText(/Individual examples are not yet listed/)).not.toBeInTheDocument()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
+    await waitFor(() => expect(seedCalls().length).toBeGreaterThan(0))
+    expect(seedCalls()[0]?.[1]).toEqual(expect.objectContaining({
+      params: expect.objectContaining({ selection_key: LOADED.selection_key }),
+    }))
     expect(screen.queryByRole('link', { name: 'harmbench' })).not.toBeInTheDocument()
     const summary = screen.getByRole('article', { name: 'harmbench' })
     expect(within(summary).queryByRole('heading')).not.toBeInTheDocument()
@@ -89,6 +120,7 @@ describe('DatasetSelection', () => {
     expect(document.querySelector('img')).toBeNull()
     expect(document.querySelector('script')).toBeNull()
     expect(screen.queryByRole('link', { name: 'harmbench' })).not.toBeInTheDocument()
+    expect(seedCalls()).toEqual([])
   })
 
   it('truncates a long unknown selection key and renders it as text', async () => {
@@ -100,6 +132,7 @@ describe('DatasetSelection', () => {
     expect(screen.queryByText(key)).not.toBeInTheDocument()
     expect(document.querySelector('img')).toBeNull()
     expect(document.querySelector('script')).toBeNull()
+    expect(seedCalls()).toEqual([])
   })
 
   it('does not choose between repeated keys or fetch them', async () => {
@@ -108,6 +141,7 @@ describe('DatasetSelection', () => {
     expect(await screen.findByRole('heading', { name: 'Dataset not found' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'harmbench' })).not.toBeInTheDocument()
     expect(screen.queryByText('dataset:named:harmbench')).not.toBeInTheDocument()
+    expect(seedCalls()).toEqual([])
   })
 
   it('shows not-found when the selection key is missing', async () => {
@@ -115,6 +149,7 @@ describe('DatasetSelection', () => {
 
     expect(await screen.findByRole('heading', { name: 'Dataset not found' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Back to datasets' })).toHaveAttribute('href', '/datasets')
+    expect(seedCalls()).toEqual([])
   })
 
   it('focuses retry after a catalog error and can load again', async () => {
@@ -146,5 +181,19 @@ describe('DatasetSelection', () => {
     })
 
     expect(await screen.findByRole('link', { name: 'Back to datasets' })).toHaveAttribute('href', '/datasets')
+  })
+
+  it('does not send catalog name search or sort to the seed API', async () => {
+    renderSelection(`${datasetDetailPath(LOADED.selection_key)}&q=policy&sort=name&unlabeled=true`)
+
+    await screen.findByRole('heading', { level: 1, name: 'harmbench' })
+    await waitFor(() => expect(seedCalls().length).toBeGreaterThan(0))
+    const params = (seedCalls()[0]?.[1] as { params: Record<string, unknown> }).params
+    expect(params.selection_key).toBe(LOADED.selection_key)
+    expect(params).not.toHaveProperty('q')
+    expect(params).not.toHaveProperty('sort')
+    expect(params).not.toHaveProperty('unlabeled')
+    expect(params).not.toHaveProperty('search')
+    expect(screen.getByRole('textbox', { name: 'Search examples' })).toHaveValue('')
   })
 })
