@@ -10,9 +10,10 @@ import type { DatasetInfo, SeedExampleDetailResponse, SeedExampleListResponse, S
 import SeedExampleBrowser from './SeedExampleBrowser'
 
 let generation = 'gen-1'
+let ready = true
 
 jest.mock('@/hooks/useRuntime', () => ({
-  useRuntime: () => ({ ready: true, state: 'ready', generation }),
+  useRuntime: () => ({ ready, state: ready ? 'ready' : 'connecting', generation }),
 }))
 
 const onCatalogStale = jest.fn()
@@ -163,6 +164,7 @@ function exampleStatus(): HTMLElement {
 describe('SeedExampleBrowser', () => {
   beforeEach(() => {
     generation = 'gen-1'
+    ready = true
     onCatalogStale.mockReset()
     mockGet = jest.spyOn(apiClient, 'get').mockImplementation((url: string, config?: { params?: Record<string, unknown> }) => {
       if (url === '/datasets/seeds') {
@@ -378,22 +380,71 @@ describe('SeedExampleBrowser', () => {
     await waitFor(() => expect(onCatalogStale).toHaveBeenCalledTimes(1))
   })
 
-  it('keeps the cursor and open example when an unknown runtime generation becomes known', async () => {
+  it.each([
+    { initialGeneration: '', initialReady: false },
+    { initialGeneration: '', initialReady: true },
+    { initialGeneration: 'gen-1', initialReady: false },
+  ])('keeps saved paging and selection while runtime is $initialGeneration / $initialReady', async ({ initialGeneration, initialReady }) => {
     const user = userEvent.setup()
-    generation = ''
-    renderBrowser('&cursor=cursor-2&example=example-1')
+    generation = initialGeneration
+    ready = initialReady
+    renderBrowser('&cursor=cursor-2&example=example-1', {
+      cursorGeneration: 'gen-1',
+      seedCursors: [null],
+      catalogPath: '/datasets?q=policy',
+    })
     expect(await screen.findByRole('heading', { level: 2, name: 'alpha' })).toBeInTheDocument()
     expect(currentUrl().searchParams.get('cursor')).toBe('cursor-2')
     expect(currentUrl().searchParams.get('example')).toBe('example-1')
+    expect(exampleStatus()).toHaveTextContent('12 matching examples, page 2')
+    expect(screen.getByRole('button', { name: 'Previous page' })).toBeEnabled()
 
     generation = 'gen-1'
+    ready = true
     await user.click(screen.getByRole('button', { name: 'Apply runtime' }))
 
     await waitFor(() => {
       expect(screen.getByRole('heading', { level: 2, name: 'alpha' })).toBeInTheDocument()
       expect(currentUrl().searchParams.get('cursor')).toBe('cursor-2')
       expect(currentUrl().searchParams.get('example')).toBe('example-1')
+      expect(exampleStatus()).toHaveTextContent('12 matching examples, page 2')
     })
+    expect(seedListCalls().every((call) => paramsOf(call).cursor === 'cursor-2')).toBe(true)
+    expect(screen.getByLabelText('Catalog return')).toHaveTextContent('/datasets?q=policy')
+
+    await user.click(screen.getByRole('button', { name: 'Previous page' }))
+    await waitFor(() => expect(currentUrl().searchParams.get('cursor')).toBeNull())
+    expect(currentUrl().searchParams.get('example')).toBe('example-1')
+  })
+
+  it('waits for readiness before invalidating saved paging from a different runtime', async () => {
+    const user = userEvent.setup()
+    generation = ''
+    ready = false
+    renderBrowser('&cursor=cursor-2&example=example-1&search=policy&limit=50', {
+      cursorGeneration: 'gen-1',
+      seedCursors: [null],
+      catalogPath: '/datasets?q=policy',
+    })
+    expect(await screen.findByRole('heading', { level: 2, name: 'alpha' })).toBeInTheDocument()
+
+    generation = 'gen-2'
+    await user.click(screen.getByRole('button', { name: 'Apply runtime' }))
+    expect(await screen.findByRole('heading', { level: 2, name: 'alpha' })).toBeInTheDocument()
+    expect(currentUrl().searchParams.get('cursor')).toBe('cursor-2')
+    expect(currentUrl().searchParams.get('example')).toBe('example-1')
+
+    ready = true
+    await user.click(screen.getByRole('button', { name: 'Apply runtime' }))
+
+    await waitFor(() => expect(exampleStatus()).toHaveTextContent('12 matching examples, page 1'))
+    expect(currentUrl().searchParams.get('cursor')).toBeNull()
+    expect(currentUrl().searchParams.get('example')).toBeNull()
+    expect(currentUrl().searchParams.get('search')).toBe('policy')
+    expect(currentUrl().searchParams.get('limit')).toBe('50')
+    expect(screen.queryByRole('heading', { level: 2, name: 'alpha' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Previous page' })).toBeDisabled()
+    expect(screen.getByLabelText('Catalog return')).toHaveTextContent('/datasets?q=policy')
   })
 
   it('shows a way back when the example id does not match a stored row', async () => {

@@ -18,6 +18,15 @@ interface SeedExampleDetail extends SeedExampleSummary {
   members: SeedMember[];
 }
 
+interface SeedExamplePage {
+  items: SeedExampleSummary[];
+  total: number;
+  pagination: {
+    has_more: boolean;
+    next_cursor: string | null;
+  };
+}
+
 async function waitForBackend(request: { get: (url: string, options?: { timeout?: number }) => Promise<{ ok: () => boolean }> }): Promise<void> {
   const maxWait = 60_000;
   const interval = 1_000;
@@ -103,5 +112,75 @@ test.describe("dataset examples against the real backend @seeded", () => {
     await page.getByRole("button", { name: "Back to the examples" }).click();
     await expect(page).not.toHaveURL(/[?&]example=/);
     await expect(page.getByRole("table", { name: "Examples" })).toBeVisible();
+  });
+
+  test("paginates stored examples and keeps the second-page selection on refresh @seeded", async ({ page, request }) => {
+    test.setTimeout(90_000);
+    const headers = compatibilityHeaders();
+    // One example per page guarantees pagination with the bundled local dataset,
+    // without adding records or depending on its current number of templates.
+    const params = new URLSearchParams({ selection_key: SELECTION_KEY, limit: "1" });
+    const firstResponse = await request.get(`/api/datasets/seeds?${params}`, { headers });
+    expect(firstResponse.ok(), await firstResponse.text()).toBe(true);
+    const firstPage = await firstResponse.json() as SeedExamplePage;
+    expect(firstPage.total).toBeGreaterThan(1);
+    expect(firstPage.items).toHaveLength(1);
+    expect(firstPage.pagination.has_more).toBe(true);
+    const cursor = firstPage.pagination.next_cursor;
+    if (!cursor) throw new Error("Expected a second page of stored examples");
+
+    const secondParams = new URLSearchParams(params);
+    secondParams.set("cursor", cursor);
+    const secondResponse = await request.get(`/api/datasets/seeds?${secondParams}`, { headers });
+    expect(secondResponse.ok(), await secondResponse.text()).toBe(true);
+    const secondPage = await secondResponse.json() as SeedExamplePage;
+    expect(secondPage.items).toHaveLength(1);
+    const first = firstPage.items[0];
+    const second = secondPage.items[0];
+    expect(second.example_id).not.toBe(first.example_id);
+
+    const detailResponse = await request.get(
+      `/api/datasets/seeds/${second.example_id}?selection_key=${encodeURIComponent(SELECTION_KEY)}`,
+      { headers },
+    );
+    expect(detailResponse.ok(), await detailResponse.text()).toBe(true);
+    const detail = await detailResponse.json() as SeedExampleDetail;
+    expect(detail.example_id).toBe(second.example_id);
+    const textMember = detail.members.find((member) => member.data_type === "text" && member.value.trim() !== "");
+    if (!textMember) throw new Error("Expected the second-page example to include a text member");
+
+    await page.goto(`/datasets/detail?${params}`);
+    const table = page.getByRole("table", { name: "Examples" });
+    await expect(table).toBeVisible();
+    await expect(table.getByRole("row")).toHaveCount(2);
+    await expect(table.getByRole("row").nth(1)).toContainText(first.preview);
+    await expect(page.getByRole("button", { name: "Previous page" })).toBeDisabled();
+
+    await page.getByRole("button", { name: "Next page" }).click();
+    await expect(page).toHaveURL((url) => url.searchParams.get("cursor") === cursor);
+    await expect(table.getByRole("row").nth(1)).toContainText(second.preview);
+    await expect(page.getByTestId("example-status")).toHaveText(`${firstPage.total.toLocaleString("en-US")} matching examples, page 2`);
+
+    await page.getByRole("button", { name: "Previous page" }).click();
+    await expect(page).toHaveURL((url) => !url.searchParams.has("cursor"));
+    await expect(table.getByRole("row").nth(1)).toContainText(first.preview);
+    await page.getByRole("button", { name: "Next page" }).click();
+    await expect(table.getByRole("row").nth(1)).toContainText(second.preview);
+
+    const label = second.name || second.preview || second.example_id;
+    await table.getByRole("button", { name: `Show ${label}`, exact: true }).click();
+    const region = page.getByRole("region", { name: "Example detail" });
+    const snippet = textMember.value.replace(/\s+/g, " ").trim().slice(0, 80);
+    await expect(region.getByText(snippet, { exact: false })).toBeVisible();
+    const selectedUrl = new URL(page.url());
+    expect(selectedUrl.searchParams.get("example")).toBe(second.example_id);
+    expect(selectedUrl.searchParams.get("cursor")).toBe(cursor);
+
+    await page.reload();
+    await expect(region.getByText(snippet, { exact: false })).toBeVisible();
+    await expect(page).toHaveURL(selectedUrl.toString());
+    await expect(table.getByRole("row", { selected: true })).toContainText(second.preview);
+    await expect(table.getByRole("button", { name: `Hide ${label}`, exact: true })).toHaveAttribute("aria-expanded", "true");
+    await expect(page.getByTestId("example-status")).toHaveText(`${firstPage.total.toLocaleString("en-US")} matching examples, page 2`);
   });
 });
