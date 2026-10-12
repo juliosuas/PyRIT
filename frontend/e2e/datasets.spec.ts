@@ -17,6 +17,12 @@ const DATASET = {
   has_unlabeled_harm_categories: false,
 };
 
+const NEIGHBOR_DATASET = {
+  ...DATASET,
+  name: "neighbor",
+  selection_key: "dataset:named:neighbor",
+};
+
 async function mockDatasetCatalog(page: Page): Promise<void> {
   await page.route("**/api/**", async (route) => {
     const apiPath = new URL(route.request().url()).pathname.replace(/^\/api/, "");
@@ -27,7 +33,7 @@ async function mockDatasetCatalog(page: Page): Promise<void> {
     });
 
     if (apiPath === "/datasets") {
-      await route.fulfill(body({ items: [DATASET] }));
+      await route.fulfill(body({ items: [DATASET, NEIGHBOR_DATASET] }));
       return;
     }
     if (apiPath === "/runtime") {
@@ -110,10 +116,21 @@ test.describe("dataset catalog layout", () => {
     await mockDatasetCatalog(page);
   });
 
-  test("wraps a long harm category inside the card on a narrow desktop column", async ({ page }) => {
-    await page.setViewportSize({ width: 430, height: 800 });
+  test("wraps a long harm category inside a multi-column desktop catalog", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 1050 });
     await page.goto("/datasets");
     await expectLongLabelStaysInsideCard(page);
+
+    const cards = page.getByRole("article");
+    await expect(cards).toHaveCount(2);
+    const [first, second] = await cards.evaluateAll((articles: Element[]) =>
+      articles.map((article: Element) => {
+        const { left, right, top } = article.getBoundingClientRect();
+        return { left, right, top };
+      }),
+    );
+    expect(first.top).toBe(second.top);
+    expect(second.left).toBeGreaterThan(first.right);
   });
 
   test("wraps a long harm category inside the card on a 390px mobile viewport", async ({ page }) => {

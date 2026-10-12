@@ -4,6 +4,7 @@ import {
   Button,
   Checkbox,
   Input,
+  Link,
   Select,
   Spinner,
   Text,
@@ -188,6 +189,14 @@ export default function DatasetCatalog() {
           <Text size={200}>
             Datasets show up here after they are loaded into memory. This view does not download them.
           </Text>
+          <Link
+            className={styles.guideLink}
+            href="https://microsoft.github.io/PyRIT/latest/code/datasets/loading-datasets/"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Learn how to load datasets into memory
+          </Link>
         </div>
       ) : (
         <>
@@ -200,7 +209,7 @@ export default function DatasetCatalog() {
             <ul className={styles.grid} aria-label="Datasets">
               {filtered.map((dataset) => (
                 <li key={dataset.selection_key}>
-                  <DatasetCard dataset={dataset} linked headingLevel="h2" />
+                  <DatasetCard dataset={dataset} linked />
                 </li>
               ))}
             </ul>

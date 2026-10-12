@@ -137,6 +137,7 @@ describe('DatasetCatalog', () => {
 
     const loaded = await screen.findByRole('article', { name: 'harmbench' })
     expect(screen.getByRole('heading', { name: 'Datasets' })).toBeInTheDocument()
+    expect(within(loaded).getByRole('heading', { level: 2, name: 'harmbench' })).toBeInTheDocument()
     expect(within(loaded).getByRole('link', { name: 'harmbench' })).toHaveAttribute(
       'href',
       datasetDetailPath('dataset:named:harmbench'),
@@ -183,6 +184,10 @@ describe('DatasetCatalog', () => {
 
     expect(await screen.findByText('No datasets in memory')).toBeInTheDocument()
     expect(screen.getByText(/does not download them/i)).toBeInTheDocument()
+    const guide = screen.getByRole('link', { name: 'Learn how to load datasets into memory' })
+    expect(guide).toHaveAttribute('href', 'https://microsoft.github.io/PyRIT/latest/code/datasets/loading-datasets/')
+    expect(guide).toHaveAttribute('target', '_blank')
+    expect(guide).toHaveAttribute('rel', 'noopener noreferrer')
     expect(screen.queryByRole('link', { name: /harmbench|gated/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /load|download/i })).not.toBeInTheDocument()
   })

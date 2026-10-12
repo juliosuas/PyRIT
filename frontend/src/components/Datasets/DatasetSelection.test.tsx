@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { FluentProvider, webLightTheme } from '@fluentui/react-components'
 import { MemoryRouter, Route, Routes } from 'react-router'
@@ -75,6 +75,8 @@ describe('DatasetSelection', () => {
     expect(screen.getByText(/Individual examples are not yet listed in this view\.\s+We are still building this experience\./)).toBeInTheDocument()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'harmbench' })).not.toBeInTheDocument()
+    const summary = screen.getByRole('article', { name: 'harmbench' })
+    expect(within(summary).queryByRole('heading')).not.toBeInTheDocument()
   })
 
   it('shows not-found for an unknown key and renders that key as text', async () => {

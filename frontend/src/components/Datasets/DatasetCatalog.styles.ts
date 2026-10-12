@@ -93,6 +93,11 @@ export const useDatasetCatalogStyles = makeStyles({
     textAlign: 'center',
     color: tokens.colorNeutralForeground3,
   },
+  guideLink: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    ...mobileTouchTargetHeight,
+  },
   resultCount: {
     margin: `0 0 ${tokens.spacingVerticalS}`,
     color: tokens.colorNeutralForeground3,

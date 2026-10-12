@@ -1,4 +1,4 @@
-import { useId, type Ref } from 'react'
+import { useId } from 'react'
 
 import { Badge, Text } from '@fluentui/react-components'
 import { Link, useLocation } from 'react-router'
@@ -15,8 +15,6 @@ const NONE_LABEL = 'None'
 interface DatasetCardProps {
   dataset: DatasetInfo
   linked: boolean
-  headingLevel?: 'h1' | 'h2'
-  headingRef?: Ref<HTMLHeadingElement>
 }
 
 function formatDatasetCount(value: number | null): string {
@@ -47,43 +45,30 @@ function StoredValues({ values, unlabeled = false }: StoredValuesProps) {
 }
 
 /** Summary card built only from one catalog record. */
-export default function DatasetCard({
-  dataset,
-  linked,
-  headingLevel,
-  headingRef,
-}: DatasetCardProps) {
+export default function DatasetCard({ dataset, linked }: DatasetCardProps) {
   const styles = useDatasetCardStyles()
   const location = useLocation()
   const titleId = useId()
   const descriptionId = useId()
-  const HeadingTag = headingLevel
   const catalogPath = `${location.pathname}${location.search}`
 
   return (
     <article
       className={styles.card}
-      aria-labelledby={HeadingTag ? titleId : undefined}
-      aria-label={HeadingTag ? undefined : dataset.name}
+      aria-labelledby={linked ? titleId : undefined}
+      aria-label={linked ? undefined : dataset.name}
     >
-      {HeadingTag && (
-        <HeadingTag
-          id={titleId}
-          ref={headingRef}
-          tabIndex={headingRef ? -1 : undefined}
-          className={styles.title}
-        >
-          {linked ? (
-            <Link
-              to={datasetDetailPath(dataset.selection_key)}
-              state={{ catalogPath }}
-              className={styles.cardLink}
-              aria-describedby={descriptionId}
-            >
-              {dataset.name}
-            </Link>
-          ) : dataset.name}
-        </HeadingTag>
+      {linked && (
+        <h2 id={titleId} className={styles.title}>
+          <Link
+            to={datasetDetailPath(dataset.selection_key)}
+            state={{ catalogPath }}
+            className={styles.cardLink}
+            aria-describedby={descriptionId}
+          >
+            {dataset.name}
+          </Link>
+        </h2>
       )}
       {linked && (
         <span id={descriptionId} className={styles.visuallyHidden}>

@@ -7,6 +7,7 @@ import {
   DEFAULT_DATASET_CATALOG_QUERY,
   filterDatasets,
   type DatasetCatalogQuery,
+  type DatasetSort,
 } from './datasetQuery'
 
 function makeDataset(overrides: Partial<DatasetInfo> & Pick<DatasetInfo, 'name' | 'selection_key'>): DatasetInfo {
@@ -83,27 +84,21 @@ describe('datasetQuery', () => {
     })).toEqual([])
   })
 
-  it('sorts names and keeps unknown counts after known counts', () => {
+  it('sorts names and known counts with deterministic ties', () => {
     const alpha = makeDataset({
       name: 'alpha',
       selection_key: 'dataset:named:alpha',
       logical_examples: 2,
-      seed_pieces: 0,
-      objectives: null,
     })
     const beta = makeDataset({
       name: 'beta',
       selection_key: 'dataset:named:beta',
       logical_examples: 10,
-      seed_pieces: null,
-      objectives: 1,
     })
     const same = makeDataset({
       name: 'alpha',
       selection_key: 'dataset:named:alpha-2',
       logical_examples: 2,
-      seed_pieces: 0,
-      objectives: null,
     })
     const rows = [beta, same, alpha]
 
@@ -127,5 +122,21 @@ describe('datasetQuery', () => {
       'dataset:named:alpha',
       'dataset:named:alpha-2',
     ])
+  })
+
+  it.each<[DatasetSort, string[]]>([
+    ['logical_examples', ['zero', 'few', 'many', 'a-unknown', 'b-unknown']],
+    ['logical_examples_desc', ['many', 'few', 'zero', 'a-unknown', 'b-unknown']],
+  ])('keeps unknown logical-example counts last for %s', (sort: DatasetSort, expected: string[]) => {
+    const rows = [
+      makeDataset({ name: 'b-unknown', selection_key: 'dataset:named:b-unknown', logical_examples: null }),
+      makeDataset({ name: 'zero', selection_key: 'dataset:named:zero', logical_examples: 0 }),
+      makeDataset({ name: 'many', selection_key: 'dataset:named:many', logical_examples: 10 }),
+      makeDataset({ name: 'a-unknown', selection_key: 'dataset:named:a-unknown', logical_examples: null }),
+      makeDataset({ name: 'few', selection_key: 'dataset:named:few', logical_examples: 2 }),
+    ]
+
+    expect(filterDatasets(rows, { ...DEFAULT_DATASET_CATALOG_QUERY, sort }).map((item: DatasetInfo) => item.name))
+      .toEqual(expected)
   })
 })
