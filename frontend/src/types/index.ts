@@ -856,6 +856,8 @@ export interface RegisteredScenario {
   include_baseline_by_default: boolean
   uses_default_adversarial_target: boolean
   supported_parameters: Parameter[]
+  /** All declared names, including opaque inputs with dedicated controls. */
+  supported_parameter_names: string[]
   default_run_size: ScenarioRunSizeEstimateResponse
 }
 
@@ -872,7 +874,7 @@ export interface ListRegisteredScenariosResponse {
 
 export interface RunScenarioRequest {
   scenario_name: string
-  target_name: string
+  target_name?: string | null
   adversarial_target_name?: string | null
   initializers?: string[] | null
   techniques?: string[] | null
