@@ -132,6 +132,7 @@ function Harness({ dataset }: { dataset: DatasetInfo }) {
   const location = useLocation()
   const navigate = useNavigate()
   const [epoch, setEpoch] = useState(0)
+  const [runtimeTick, setRuntimeTick] = useState(0)
   return (
     <>
       <Routes key={epoch}>
@@ -145,6 +146,8 @@ function Harness({ dataset }: { dataset: DatasetInfo }) {
       }</output>
       <button type="button" onClick={() => navigate(-1)}>History back</button>
       <button type="button" onClick={() => setEpoch((value) => value + 1)}>Refresh page</button>
+      <button type="button" onClick={() => setRuntimeTick((value) => value + 1)}>Apply runtime</button>
+      <span data-testid="runtime-tick">{runtimeTick}</span>
     </>
   )
 }
@@ -373,6 +376,56 @@ describe('SeedExampleBrowser', () => {
     renderBrowser()
     expect(await screen.findByText('No examples in this dataset')).toBeInTheDocument()
     await waitFor(() => expect(onCatalogStale).toHaveBeenCalledTimes(1))
+  })
+
+  it('keeps the cursor and open example when an unknown runtime generation becomes known', async () => {
+    const user = userEvent.setup()
+    generation = ''
+    renderBrowser('&cursor=cursor-2&example=example-1')
+    expect(await screen.findByRole('heading', { level: 2, name: 'alpha' })).toBeInTheDocument()
+    expect(currentUrl().searchParams.get('cursor')).toBe('cursor-2')
+    expect(currentUrl().searchParams.get('example')).toBe('example-1')
+
+    generation = 'gen-1'
+    await user.click(screen.getByRole('button', { name: 'Apply runtime' }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { level: 2, name: 'alpha' })).toBeInTheDocument()
+      expect(currentUrl().searchParams.get('cursor')).toBe('cursor-2')
+      expect(currentUrl().searchParams.get('example')).toBe('example-1')
+    })
+  })
+
+  it('shows a way back when the example id does not match a stored row', async () => {
+    const user = userEvent.setup()
+    renderBrowser('&example=AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE')
+
+    expect(await screen.findByText('This example is not in the dataset.')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { level: 2, name: 'alpha' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Example detail' })).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Back to the examples' }))
+    await waitFor(() => expect(currentUrl().searchParams.get('example')).toBeNull())
+    expect(screen.getByRole('table', { name: 'Examples' })).toBeInTheDocument()
+    expect(screen.queryByText('This example is not in the dataset.')).not.toBeInTheDocument()
+  })
+
+  it('shows a way back when the example request is not found', async () => {
+    mockGet.mockImplementation((url: string) => {
+      if (url === '/datasets/seeds') return Promise.resolve({ data: listPage([FIRST, SECOND]) })
+      if (String(url).startsWith('/datasets/seeds/')) {
+        return Promise.reject({
+          isAxiosError: true,
+          response: { status: 404, data: { detail: 'missing' } },
+        })
+      }
+      return Promise.reject(new Error(String(url)))
+    })
+    renderBrowser('&example=example-1')
+
+    expect(await screen.findByText('This example is not in the dataset.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Back to the examples' })).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Example detail' })).not.toBeInTheDocument()
   })
 
   it('drops the open example when the runtime generation changes', async () => {

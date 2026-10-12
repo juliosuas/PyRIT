@@ -5,11 +5,14 @@ import {
   pushSeedCursor,
   seedBrowserQueryFromSearchParams,
   seedBrowserSearchParams,
+  isKnownRuntimeGeneration,
+  runtimeGenerationChanged,
   seedCursorIsStale,
   seedCursorsFromNavigationState,
   seedFiltersActive,
   seedNavigationState,
   seedPageNumber,
+  seedQueryWithoutPaging,
 } from './seedExampleQuery'
 
 const KEY = 'dataset:named:harmbench'
@@ -144,6 +147,45 @@ describe('seed cursor history', () => {
     expect(seedCursorIsStale(state, 'gen-1')).toBe(false)
     expect(seedCursorIsStale(state, 'gen-2')).toBe(true)
     expect(seedCursorIsStale({ catalogPath: '/datasets' }, 'gen-2')).toBe(false)
+    expect(seedCursorIsStale(state, '')).toBe(false)
+    expect(seedCursorIsStale(state, 'gen-2', false)).toBe(false)
+    expect(seedCursorIsStale({ ...state, cursorGeneration: '' }, 'gen-1')).toBe(false)
+    expect(isKnownRuntimeGeneration({ generation: '', ready: true })).toBe(false)
+    expect(isKnownRuntimeGeneration({ generation: 'gen-1', ready: false })).toBe(false)
+    expect(isKnownRuntimeGeneration({ generation: 'gen-1', ready: true })).toBe(true)
+    expect(runtimeGenerationChanged(
+      { generation: '', ready: false },
+      { generation: 'gen-1', ready: true },
+    )).toBe(false)
+    expect(runtimeGenerationChanged(
+      { generation: 'gen-1', ready: true },
+      { generation: 'gen-1', ready: false },
+    )).toBe(false)
+    expect(runtimeGenerationChanged(
+      { generation: 'gen-1', ready: true },
+      { generation: 'gen-2', ready: true },
+    )).toBe(true)
+    expect(seedQueryWithoutPaging({
+      search: 'password',
+      modalities: ['text'],
+      seedTypes: ['prompt'],
+      harmCategories: [],
+      limit: 50,
+      cursor: 'cursor-2',
+      exampleId: 'example-1',
+      cursorRepeated: true,
+      exampleRepeated: true,
+    })).toEqual({
+      search: 'password',
+      modalities: ['text'],
+      seedTypes: ['prompt'],
+      harmCategories: [],
+      limit: 50,
+      cursor: null,
+      exampleId: null,
+      cursorRepeated: false,
+      exampleRepeated: false,
+    })
     expect(seedNavigationState({ catalogPath: 'https://evil.example/datasets' }, [], 'gen-1').catalogPath).toBe('/datasets')
   })
 

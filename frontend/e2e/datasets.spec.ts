@@ -402,6 +402,20 @@ test.describe("dataset example table", () => {
     await expect(page).toHaveURL(new RegExp(`selection_key=${encodeURIComponent(DATASET.selection_key).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
   });
 
+  test("shows a way back when the example id does not match a row", async ({ page }) => {
+    await mockDatasetExamples(page);
+    const exampleId = "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE";
+    await page.goto(
+      `/datasets/detail?selection_key=${encodeURIComponent(DATASET.selection_key)}&example=${exampleId}`,
+    );
+    await expect(page.getByRole("table", { name: "Examples" })).toBeVisible();
+    await expect(page.getByText("This example is not in the dataset.")).toBeVisible();
+    await expect(page.getByRole("region", { name: "Example detail" })).toHaveCount(0);
+    await page.getByRole("button", { name: "Back to the examples" }).click();
+    await expect(page).not.toHaveURL(/[?&]example=/);
+    await expect(page.getByRole("table", { name: "Examples" })).toBeVisible();
+  });
+
   test("does not request seeds when the selection key is missing", async ({ page }) => {
     const seedRequests = await mockDatasetExamples(page);
     await page.goto("/datasets/detail");

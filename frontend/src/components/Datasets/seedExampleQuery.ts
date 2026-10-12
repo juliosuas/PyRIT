@@ -139,11 +139,46 @@ export function clearedSeedFilters(query: SeedBrowserQuery): SeedBrowserQuery {
   }
 }
 
-/** True when saved navigation state names a different runtime than the one on screen. */
-export function seedCursorIsStale(state: unknown, generation: string): boolean {
+export interface RuntimeGeneration {
+  readonly generation: string
+  readonly ready: boolean
+}
+
+/** A generation can reset paging only after the runtime is ready and has reported an id. */
+export function isKnownRuntimeGeneration(runtime: RuntimeGeneration): boolean {
+  return runtime.ready && runtime.generation !== ''
+}
+
+/**
+ * True only for a transition between two known generations.
+ * An empty id or a runtime that is not ready is unknown, so it is not a change.
+ */
+export function runtimeGenerationChanged(previous: RuntimeGeneration, next: RuntimeGeneration): boolean {
+  return isKnownRuntimeGeneration(previous)
+    && isKnownRuntimeGeneration(next)
+    && previous.generation !== next.generation
+}
+
+/** Drops the page cursor and the open example. Filters and page size stay. */
+export function seedQueryWithoutPaging(query: SeedBrowserQuery): SeedBrowserQuery {
+  return {
+    ...query,
+    cursor: null,
+    exampleId: null,
+    cursorRepeated: false,
+    exampleRepeated: false,
+  }
+}
+
+/**
+ * True when saved navigation state names a different known runtime than the one on screen.
+ * An unknown current or recorded generation does not make the saved page stale.
+ */
+export function seedCursorIsStale(state: unknown, generation: string, ready = true): boolean {
+  if (!isKnownRuntimeGeneration({ generation, ready })) return false
   if (state == null || typeof state !== 'object' || !(CURSOR_GENERATION_KEY in state)) return false
   const recorded = (state as { cursorGeneration?: unknown }).cursorGeneration
-  return typeof recorded === 'string' && recorded !== generation
+  return typeof recorded === 'string' && recorded !== '' && recorded !== generation
 }
 
 export function seedCursorsFromNavigationState(state: unknown): readonly (string | null)[] {

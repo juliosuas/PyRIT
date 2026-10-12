@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef } from 'react'
 import type { KeyboardEvent } from 'react'
 
 import {
@@ -18,10 +18,8 @@ import {
   Text,
 } from '@fluentui/react-components'
 import { ArrowSyncRegular, ChevronLeftRegular, ChevronRightRegular, SearchRegular } from '@fluentui/react-icons'
-import { useLocation, useSearchParams } from 'react-router'
 
 import SearchableMultiCombobox from '@/components/SearchableMultiCombobox'
-import { useRuntime } from '@/hooks/useRuntime'
 import { useSeedExampleDetail, useSeedExamples } from '@/hooks/useSeedExamples'
 import type { DatasetInfo, FilterOption, SeedExampleSummary } from '@/types'
 
@@ -35,16 +33,13 @@ import {
   SEED_PAGE_SIZE_OPTIONS,
   SEED_TYPE_LABELS,
   SEED_TYPES,
-  seedBrowserQueryFromSearchParams,
-  seedBrowserSearchParams,
-  seedCursorIsStale,
-  seedCursorsFromNavigationState,
   seedFiltersActive,
-  seedNavigationState,
   seedPageNumber,
+  seedQueryWithoutPaging,
   type SeedBrowserQuery,
 } from './seedExampleQuery'
 import { singleSeedExampleChoice } from './seedExampleSelection'
+import { useSeedExampleBrowserState } from './useSeedExampleBrowserState'
 
 const NOT_LABELED_LABEL = 'Not labeled'
 const SEARCH_HELP = 'Search looks through stored text prompts and objectives. Simulated-conversation JSON is not included; choose that seed type to find those examples. ASCII letters ignore case.'
@@ -77,24 +72,6 @@ function rowKeys(items: readonly SeedExampleSummary[]): string[] {
   return keys
 }
 
-function withoutPaging(query: SeedBrowserQuery): SeedBrowserQuery {
-  return {
-    ...query,
-    cursor: null,
-    exampleId: null,
-    cursorRepeated: false,
-    exampleRepeated: false,
-  }
-}
-
-function pagingDirty(query: SeedBrowserQuery, cursors: readonly (string | null)[]): boolean {
-  return query.cursor != null
-    || query.exampleId != null
-    || query.cursorRepeated
-    || query.exampleRepeated
-    || cursors.length > 0
-}
-
 function exampleStatus(loading: boolean, failed: boolean, total: number | null, filtered: boolean, page: number | null): string {
   let label = 'Loading examples...'
   if (!loading && failed) label = 'Could not load examples.'
@@ -116,37 +93,7 @@ function pageSizeChoices(limit: number): number[] {
 export default function SeedExampleBrowser({ dataset, onCatalogStale }: SeedExampleBrowserProps) {
   const styles = useSeedExampleBrowserStyles()
   const helpId = useId()
-  const { generation } = useRuntime()
-  const location = useLocation()
-  const [searchParams, setSearchParams] = useSearchParams()
-  const searchKey = searchParams.toString()
-  const rawQuery = useMemo(
-    () => seedBrowserQueryFromSearchParams(new URLSearchParams(searchKey)),
-    [searchKey],
-  )
-  const recordedCursors = seedCursorsFromNavigationState(location.state)
-  const cursorStale = seedCursorIsStale(location.state, generation)
-  const [boundGeneration, setBoundGeneration] = useState(generation)
-  const [suppressPaging, setSuppressPaging] = useState(false)
-  const generationChanged = boundGeneration !== generation
-  const dirty = pagingDirty(rawQuery, recordedCursors)
-  const dropPaging = cursorStale || ((suppressPaging || generationChanged) && dirty)
-  if (generationChanged) {
-    setBoundGeneration(generation)
-    setSuppressPaging(true)
-  } else if (suppressPaging && !dirty && !cursorStale) {
-    setSuppressPaging(false)
-  }
-  const parsedQuery = dropPaging ? withoutPaging(rawQuery) : rawQuery
-  const queryIdentity = `${dropPaging ? 'drop' : 'keep'}:${searchKey}`
-  const [seenQueryIdentity, setSeenQueryIdentity] = useState(queryIdentity)
-  const [stableQuery, setStableQuery] = useState(parsedQuery)
-  if (seenQueryIdentity !== queryIdentity) {
-    setSeenQueryIdentity(queryIdentity)
-    setStableQuery(parsedQuery)
-  }
-  const query = seenQueryIdentity === queryIdentity ? stableQuery : parsedQuery
-  const visitedCursors = dropPaging ? [] : recordedCursors
+  const { query, visitedCursors, generation, commit } = useSeedExampleBrowserState(dataset.selection_key)
   const pageState = useSeedExamples(dataset.selection_key, query, generation)
   const detailState = useSeedExampleDetail(
     dataset.selection_key,
@@ -166,29 +113,14 @@ export default function SeedExampleBrowser({ dataset, onCatalogStale }: SeedExam
   const buttonRefs = useRef(new Map<string, HTMLButtonElement | HTMLAnchorElement>())
   const staleRefreshKey = useRef<string | null>(null)
 
-  const commit = (
-    next: SeedBrowserQuery,
-    cursors: readonly (string | null)[],
-    replace: boolean,
-  ): void => {
-    setSearchParams(seedBrowserSearchParams(dataset.selection_key, next), {
-      replace,
-      state: seedNavigationState(location.state, cursors, generation),
-    })
-  }
-
-  useEffect(() => {
-    if (!dropPaging) return
-    const nextParams = seedBrowserSearchParams(dataset.selection_key, withoutPaging(rawQuery)).toString()
-    const cursorsRemain = seedCursorsFromNavigationState(location.state).length > 0
-    if (searchParams.toString() === nextParams && !cursorsRemain && !seedCursorIsStale(location.state, generation)) {
-      return
-    }
-    setSearchParams(seedBrowserSearchParams(dataset.selection_key, withoutPaging(rawQuery)), {
-      replace: true,
-      state: seedNavigationState(location.state, [], generation),
-    })
-  }, [dropPaging, dataset.selection_key, generation, rawQuery, location.state, searchParams, setSearchParams])
+  const exampleMissing = query.exampleId != null
+    && !query.exampleRepeated
+    && !detailState.loading
+    && detailState.error == null
+    && (
+      detailState.notFound
+      || (detailState.detail != null && detailState.detail.example_id !== query.exampleId)
+    )
 
   useEffect(() => {
     if (pageState.error) listRetryRef.current?.focus()
@@ -200,12 +132,12 @@ export default function SeedExampleBrowser({ dataset, onCatalogStale }: SeedExam
 
   useEffect(() => {
     if (!moveFocusToDetail.current || detailState.loading) return
-    if (detailState.detail) detailHeadingRef.current?.focus()
-    else if (detailState.notFound) missingExampleRef.current?.focus()
+    if (detailState.detail && detailState.detail.example_id === query.exampleId) detailHeadingRef.current?.focus()
+    else if (exampleMissing) missingExampleRef.current?.focus()
     else if (detailState.error) detailRetryRef.current?.focus()
     else return
     moveFocusToDetail.current = false
-  }, [detailState.detail, detailState.error, detailState.loading, detailState.notFound])
+  }, [detailState.detail, detailState.error, detailState.loading, exampleMissing, query.exampleId])
 
   useEffect(() => {
     const key = `${generation}:${dataset.selection_key}`
@@ -366,7 +298,7 @@ export default function SeedExampleBrowser({ dataset, onCatalogStale }: SeedExam
             ref={cursorButtonRef}
             className={styles.touchTarget}
             appearance="primary"
-            onClick={() => { commit(withoutPaging(query), [], true) }}
+            onClick={() => { commit(seedQueryWithoutPaging(query), [], true) }}
           >
             Start from the first page
           </Button>
@@ -496,10 +428,19 @@ export default function SeedExampleBrowser({ dataset, onCatalogStale }: SeedExam
           </Button>
         </div>
       )}
-      {query.exampleId && detailState.notFound && (
-        <p ref={missingExampleRef} tabIndex={-1} className={styles.message}>
-          This example is no longer in the dataset.
-        </p>
+      {exampleMissing && (
+        <div>
+          <p ref={missingExampleRef} tabIndex={-1} className={styles.message}>
+            This example is not in the dataset.
+          </p>
+          <Button
+            className={styles.touchTarget}
+            appearance="primary"
+            onClick={() => { selectExample(null, false) }}
+          >
+            Back to the examples
+          </Button>
+        </div>
       )}
       {detailState.detail && query.exampleId === detailState.detail.example_id && (
         <SeedExampleDetail detail={detailState.detail} headingRef={detailHeadingRef} />
