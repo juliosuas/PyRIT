@@ -1,7 +1,8 @@
+import { useState } from 'react'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { FluentProvider, webLightTheme } from '@fluentui/react-components'
-import { MemoryRouter, Route, Routes } from 'react-router'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router'
 
 import { apiClient } from '@/services/api'
 import type { DatasetInfo } from '@/types'
@@ -10,7 +11,20 @@ import { datasetDetailPath } from '@/utils/routeParams'
 
 import DatasetSelection from './DatasetSelection'
 
+let generation = ''
+let ready = true
+
+jest.mock('@/hooks/useRuntime', () => ({
+  useRuntime: () => ({ ready, state: ready ? 'ready' : 'connecting', generation }),
+}))
+
 let mockGet: jest.SpyInstance
+
+interface TrackedCall {
+  url: string
+  params: Record<string, unknown>
+  generation: string
+}
 
 const EMPTY_SEED_PAGE = {
   items: [],
@@ -59,18 +73,45 @@ function makeDataset(
   }
 }
 
-function renderSelection(initialPath: string, state?: unknown) {
-  const url = new URL(initialPath, 'http://localhost')
-  return render(
+function LocationReadout() {
+  const location = useLocation()
+  return <output aria-label="Current URL">{`${location.pathname}${location.search}`}</output>
+}
+
+function SelectionHarness({
+  pathname,
+  search,
+  state,
+}: {
+  pathname: string
+  search: string
+  state?: unknown
+}) {
+  const [runtimeTick, setRuntimeTick] = useState(0)
+  return (
     <FluentProvider theme={webLightTheme}>
-      <MemoryRouter initialEntries={[{ pathname: url.pathname, search: url.search, state }]}>
+      <MemoryRouter initialEntries={[{ pathname, search, state }]}>
         <Routes>
           <Route path="/datasets" element={<p>Catalog</p>} />
           <Route path="/datasets/detail" element={<DatasetSelection />} />
         </Routes>
+        <LocationReadout />
       </MemoryRouter>
-    </FluentProvider>,
+      <button type="button" onClick={() => setRuntimeTick((value) => value + 1)}>Apply runtime</button>
+      <span data-testid="runtime-tick">{runtimeTick}</span>
+    </FluentProvider>
   )
+}
+
+function renderSelection(initialPath: string, state?: unknown) {
+  const url = new URL(initialPath, 'http://localhost')
+  return render(
+    <SelectionHarness pathname={url.pathname} search={url.search} state={state} />,
+  )
+}
+
+function currentUrl(): URL {
+  return new URL(screen.getByLabelText('Current URL').textContent ?? '', 'http://localhost')
 }
 
 const LOADED = makeDataset({
@@ -80,6 +121,8 @@ const LOADED = makeDataset({
 
 describe('DatasetSelection', () => {
   beforeEach(() => {
+    generation = ''
+    ready = true
     mockGet = jest.spyOn(apiClient, 'get').mockImplementation((url: string) => {
       if (url === '/datasets/seeds' || url.startsWith('/datasets/seeds/')) {
         return Promise.resolve({ data: EMPTY_SEED_PAGE })
@@ -196,4 +239,98 @@ describe('DatasetSelection', () => {
     expect(params).not.toHaveProperty('search')
     expect(screen.getByRole('textbox', { name: 'Search examples' })).toHaveValue('')
   })
+
+  it('does not send a direct-link page to the next runtime', async () => {
+    const user = userEvent.setup()
+    const calls: TrackedCall[] = []
+    generation = 'gen-1'
+    ready = true
+    mockLinkedExample(calls)
+    renderSelection(`${datasetDetailPath(LOADED.selection_key)}&cursor=cursor-2&example=example-2`)
+
+    await waitFor(() => {
+      expect(trackedLists(calls, 'gen-1').some((call) => call.params.cursor === 'cursor-2')).toBe(true)
+      expect(trackedDetails(calls, 'gen-1').some((call) => call.url.endsWith('/example-2'))).toBe(true)
+    })
+    expect(currentUrl().searchParams.get('cursor')).toBe('cursor-2')
+    expect(currentUrl().searchParams.get('example')).toBe('example-2')
+
+    generation = 'gen-2'
+    await user.click(screen.getByRole('button', { name: 'Apply runtime' }))
+
+    await waitFor(() => expect(trackedLists(calls, 'gen-2').length).toBeGreaterThan(0))
+    expect(trackedLists(calls, 'gen-2').every((call) => call.params.cursor == null)).toBe(true)
+    expect(trackedDetails(calls, 'gen-2')).toEqual([])
+    await waitFor(() => {
+      expect(currentUrl().searchParams.get('cursor')).toBeNull()
+      expect(currentUrl().searchParams.get('example')).toBeNull()
+    })
+  })
+
+  it('keeps a direct-link page when the runtime first becomes known', async () => {
+    const user = userEvent.setup()
+    const calls: TrackedCall[] = []
+    generation = ''
+    ready = false
+    mockLinkedExample(calls)
+    renderSelection(`${datasetDetailPath(LOADED.selection_key)}&cursor=cursor-2&example=example-2`)
+
+    await waitFor(() => {
+      expect(trackedLists(calls, '').some((call) => call.params.cursor === 'cursor-2')).toBe(true)
+      expect(trackedDetails(calls, '').some((call) => call.url.endsWith('/example-2'))).toBe(true)
+    })
+
+    generation = 'gen-1'
+    ready = true
+    await user.click(screen.getByRole('button', { name: 'Apply runtime' }))
+
+    await waitFor(() => expect(trackedLists(calls, 'gen-1').length).toBeGreaterThan(0))
+    expect(trackedLists(calls, 'gen-1').every((call) => call.params.cursor === 'cursor-2')).toBe(true)
+    expect(trackedDetails(calls, 'gen-1').some((call) => call.url.endsWith('/example-2'))).toBe(true)
+    expect(currentUrl().searchParams.get('cursor')).toBe('cursor-2')
+    expect(currentUrl().searchParams.get('example')).toBe('example-2')
+  })
 })
+
+const LINKED_EXAMPLE = {
+  example_id: 'example-2',
+  name: 'beta',
+  preview: 'later preview',
+  preview_truncated: false,
+  modalities: ['text'],
+  seed_types: ['prompt'],
+  piece_count: 1,
+  objective_count: 0,
+  harm_categories: ['hate'],
+  has_unlabeled_harm: false,
+}
+
+function mockLinkedExample(calls: TrackedCall[]): void {
+  mockGet.mockImplementation((url: string, config?: { params?: Record<string, unknown> }) => {
+    const requestUrl = String(url)
+    if (requestUrl === '/datasets' || requestUrl === '/datasets/seeds' || requestUrl.startsWith('/datasets/seeds/')) {
+      calls.push({ url: requestUrl, params: config?.params ?? {}, generation })
+    }
+    if (requestUrl === '/datasets/seeds') {
+      return Promise.resolve({
+        data: {
+          items: [LINKED_EXAMPLE],
+          pagination: { limit: 20, has_more: false, next_cursor: null, prev_cursor: null },
+          total: 1,
+        },
+      })
+    }
+    if (requestUrl.startsWith('/datasets/seeds/')) {
+      return Promise.resolve({ data: { ...LINKED_EXAMPLE, members: [] } })
+    }
+    return Promise.resolve({ data: { items: [LOADED] } })
+  })
+}
+
+function trackedLists(calls: readonly TrackedCall[], runtimeGeneration: string): TrackedCall[] {
+  return calls.filter((call) => call.generation === runtimeGeneration && call.url === '/datasets/seeds')
+}
+
+function trackedDetails(calls: readonly TrackedCall[], runtimeGeneration: string): TrackedCall[] {
+  return calls.filter((call) => call.generation === runtimeGeneration && call.url.startsWith('/datasets/seeds/'))
+}

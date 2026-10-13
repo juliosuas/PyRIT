@@ -8,8 +8,9 @@ import { useLoadedDatasets } from '@/hooks/useLoadedDatasets'
 import { catalogPathFromNavigationState, selectionKeyFromSearchParams } from '@/utils/routeParams'
 
 import DatasetCard from './DatasetCard'
-import SeedExampleBrowser from './SeedExampleBrowser'
+import { SeedExampleBrowserView } from './SeedExampleBrowser'
 import { useDatasetSelectionStyles } from './DatasetSelection.styles'
+import { useSeedExampleBrowserState } from './useSeedExampleBrowserState'
 
 const MAX_SHOWN_SELECTION_KEY_LENGTH = 80
 
@@ -30,6 +31,9 @@ export default function DatasetSelection() {
   const [searchParams] = useSearchParams()
   const selectionKey = selectionKeyFromSearchParams(searchParams)
   const catalogPath = catalogPathFromNavigationState(location.state)
+  // Stay mounted while a catalog reload unmounts the table, so a runtime change
+  // is still compared with the generation that owned the current page.
+  const seedBrowser = useSeedExampleBrowserState(selectionKey ?? '')
   const { datasets, loading, error, retry, refresh } = useLoadedDatasets()
   const dataset = selectionKey == null
     ? undefined
@@ -75,7 +79,7 @@ export default function DatasetSelection() {
             <DatasetCard dataset={dataset} linked={false} />
           </div>
           <div className={styles.browser}>
-            <SeedExampleBrowser dataset={dataset} onCatalogStale={refresh} />
+            <SeedExampleBrowserView dataset={dataset} onCatalogStale={refresh} browserState={seedBrowser} />
           </div>
         </>
       ) : (

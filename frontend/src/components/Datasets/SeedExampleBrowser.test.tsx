@@ -323,6 +323,28 @@ describe('SeedExampleBrowser', () => {
     expect(currentUrl().searchParams.get('example')).toBe('example-1')
   })
 
+  it('tabs to the first visible example when the open example is on another page', async () => {
+    const user = userEvent.setup()
+    renderBrowser()
+    await screen.findByText('alpha')
+
+    await user.click(screen.getByRole('button', { name: 'Show alpha' }))
+    expect(await screen.findByRole('heading', { level: 2, name: 'alpha' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Next page' }))
+    expect(await screen.findByText('later preview')).toBeInTheDocument()
+    expect(currentUrl().searchParams.get('example')).toBe('example-1')
+    expect(screen.queryByRole('button', { name: 'Hide alpha' })).not.toBeInTheDocument()
+
+    screen.getByRole('combobox', { name: 'Examples per page' }).focus()
+    await user.tab()
+
+    const showBeta = screen.getByRole('button', { name: 'Show beta' })
+    expect(showBeta).toHaveFocus()
+    expect(showBeta).toHaveAttribute('tabindex', '0')
+    await user.keyboard('{ArrowDown}')
+    expect(showBeta).toHaveFocus()
+  })
+
   it('moves a single selection with the keyboard', async () => {
     const user = userEvent.setup()
     renderBrowser()
@@ -333,6 +355,38 @@ describe('SeedExampleBrowser', () => {
     expect(await screen.findByRole('button', { name: 'Hide beta' })).toHaveFocus()
     expect(screen.getByRole('button', { name: 'Show alpha' })).toHaveAttribute('aria-pressed', 'false')
     expect(currentUrl().searchParams.get('example')).toBe('example-2')
+  })
+
+  it('restarts from the first page only after a rejected cursor is dismissed', async () => {
+    const user = userEvent.setup()
+    renderBrowser('&cursor=bad&search=policy&modality=text', {
+      catalogPath: '/datasets',
+      cursorGeneration: 'gen-1',
+      seedCursors: [null],
+    })
+
+    expect(await screen.findByText('This page link is not valid for these filters.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Start from the first page' })).toBeInTheDocument()
+    expect(currentUrl().searchParams.get('cursor')).toBe('bad')
+    expect(currentUrl().searchParams.get('search')).toBe('policy')
+    expect(currentUrl().searchParams.get('modality')).toBe('text')
+    expect(screen.queryByText('alpha')).not.toBeInTheDocument()
+    expect(seedListCalls().every((call) => paramsOf(call).cursor === 'bad')).toBe(true)
+
+    await user.click(screen.getByRole('button', { name: 'Start from the first page' }))
+
+    expect(await screen.findByText('alpha')).toBeInTheDocument()
+    await waitFor(() => expect(currentUrl().searchParams.get('cursor')).toBeNull())
+    expect(currentUrl().searchParams.get('search')).toBe('policy')
+    expect(currentUrl().searchParams.get('modality')).toBe('text')
+    expect(screen.getByRole('button', { name: 'Previous page' })).toBeDisabled()
+    const last = seedListCalls()[seedListCalls().length - 1]
+    expect(paramsOf(last).cursor).toBeUndefined()
+    expect(paramsOf(last).search).toBe('policy')
+    expect(paramsOf(last).modality).toEqual(['text'])
+    expect(seedListCalls().filter((call) => paramsOf(call).cursor == null).length).toBeGreaterThan(0)
+    expect(seedListCalls().every((call) => paramsOf(call).cursor == null || paramsOf(call).cursor === 'bad')).toBe(true)
   })
 
   it('focuses retry for a bad cursor and does not replace that cursor', async () => {

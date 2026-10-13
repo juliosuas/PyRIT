@@ -34,9 +34,18 @@ export interface SeedExampleBrowserState {
   ) => void
 }
 
+function recordedSeedCursorGeneration(state: unknown): string | null {
+  if (state == null || typeof state !== 'object' || !('cursorGeneration' in state)) return null
+  const recorded = (state as { cursorGeneration?: unknown }).cursorGeneration
+  if (typeof recorded !== 'string' || recorded === '') return null
+  return recorded
+}
+
 /**
  * Owns the example table URL: filters, page cursor, and open example.
  * Paging resets only when one known runtime generation is replaced by another.
+ * The generation is stored on the history entry as soon as it is known so a
+ * catalog reload can unmount the table without forgetting which runtime owned the page.
  */
 export function useSeedExampleBrowserState(selectionKey: string): SeedExampleBrowserState {
   const runtime = useRuntime()
@@ -89,7 +98,28 @@ export function useSeedExampleBrowserState(selectionKey: string): SeedExampleBro
   }
 
   useEffect(() => {
-    if (!dropPaging) return
+    if (!runtimeKnown || dropPaging || selectionKey === '') return
+    if (recordedSeedCursorGeneration(location.state) != null) return
+    setSearchParams(searchParams, {
+      replace: true,
+      state: seedNavigationState(
+        location.state,
+        seedCursorsFromNavigationState(location.state),
+        stateGeneration,
+      ),
+    })
+  }, [
+    dropPaging,
+    location.state,
+    runtimeKnown,
+    searchParams,
+    selectionKey,
+    setSearchParams,
+    stateGeneration,
+  ])
+
+  useEffect(() => {
+    if (!dropPaging || selectionKey === '') return
     const nextParams = seedBrowserSearchParams(selectionKey, seedQueryWithoutPaging(rawQuery)).toString()
     const cursorsRemain = seedCursorsFromNavigationState(location.state).length > 0
     const stillStale = seedCursorIsStale(location.state, generation, ready)

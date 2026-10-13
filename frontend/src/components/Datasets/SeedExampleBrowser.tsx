@@ -39,7 +39,7 @@ import {
   type SeedBrowserQuery,
 } from './seedExampleQuery'
 import { singleSeedExampleChoice } from './seedExampleSelection'
-import { useSeedExampleBrowserState } from './useSeedExampleBrowserState'
+import { useSeedExampleBrowserState, type SeedExampleBrowserState } from './useSeedExampleBrowserState'
 
 const NOT_LABELED_LABEL = 'Not labeled'
 const SEARCH_HELP = 'Search looks through stored text prompts and objectives. Simulated-conversation JSON is not included; choose that seed type to find those examples. ASCII letters ignore case.'
@@ -91,9 +91,18 @@ function pageSizeChoices(limit: number): number[] {
 
 /** Read-only example table for one loaded dataset. */
 export default function SeedExampleBrowser({ dataset, onCatalogStale }: SeedExampleBrowserProps) {
+  const browserState = useSeedExampleBrowserState(dataset.selection_key)
+  return <SeedExampleBrowserView dataset={dataset} onCatalogStale={onCatalogStale} browserState={browserState} />
+}
+
+export function SeedExampleBrowserView({
+  dataset,
+  onCatalogStale,
+  browserState,
+}: SeedExampleBrowserProps & { browserState: SeedExampleBrowserState }) {
   const styles = useSeedExampleBrowserStyles()
   const helpId = useId()
-  const { query, visitedCursors, generation, commit } = useSeedExampleBrowserState(dataset.selection_key)
+  const { query, visitedCursors, generation, commit } = browserState
   const pageState = useSeedExamples(dataset.selection_key, query, generation)
   const detailState = useSeedExampleDetail(
     dataset.selection_key,
@@ -165,6 +174,7 @@ export default function SeedExampleBrowser({ dataset, onCatalogStale }: SeedExam
 
   const items = pageState.page?.items ?? []
   const keys = rowKeys(items)
+  const selectedOnPage = items.some((item) => item.example_id === choice?.exampleId)
   const filtered = seedFiltersActive(query)
   const cursorRejected = query.cursorRepeated || (pageState.error?.status === 400 && query.cursor != null)
   const pageNumber = seedPageNumber(query, visitedCursors)
@@ -202,6 +212,10 @@ export default function SeedExampleBrowser({ dataset, onCatalogStale }: SeedExam
       previous.seedCursors,
       false,
     )
+  }
+
+  const restartFromFirstPage = (): void => {
+    commit(seedQueryWithoutPaging(query), [], true)
   }
 
   const onExampleKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number): void => {
@@ -298,7 +312,7 @@ export default function SeedExampleBrowser({ dataset, onCatalogStale }: SeedExam
             ref={cursorButtonRef}
             className={styles.touchTarget}
             appearance="primary"
-            onClick={() => { commit(seedQueryWithoutPaging(query), [], true) }}
+            onClick={restartFromFirstPage}
           >
             Start from the first page
           </Button>
@@ -323,6 +337,15 @@ export default function SeedExampleBrowser({ dataset, onCatalogStale }: SeedExam
           >
             Retry
           </Button>
+          {cursorRejected && (
+            <Button
+              className={styles.touchTarget}
+              appearance="primary"
+              onClick={restartFromFirstPage}
+            >
+              Start from the first page
+            </Button>
+          )}
         </div>
       ) : pageState.page && pageState.page.total === 0 ? (
         <p className={styles.message}>
@@ -376,7 +399,7 @@ export default function SeedExampleBrowser({ dataset, onCatalogStale }: SeedExam
                         aria-pressed={selected}
                         aria-expanded={selected}
                         aria-label={`${selected ? 'Hide' : 'Show'} ${label}`}
-                        tabIndex={selected || (!choice && index === 0) ? 0 : -1}
+                        tabIndex={selected || (!selectedOnPage && index === 0) ? 0 : -1}
                         onClick={() => { selectExample(selected ? null : item.example_id, !selected) }}
                         onKeyDown={(event) => { onExampleKeyDown(event, index) }}
                       >
