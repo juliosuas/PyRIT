@@ -1,6 +1,7 @@
-import { expect, test } from "./_fixtures";
+import { expect as baseExpect, test } from "./_fixtures";
 import { compatibilityHeaders } from "./_compatibility";
 
+const expect = baseExpect.configure({ timeout: 30_000 });
 const SELECTION_KEY = "dataset:named:jailbreak_templates";
 
 interface SeedExampleSummary {

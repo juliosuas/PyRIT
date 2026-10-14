@@ -38,6 +38,8 @@ records for inspection only: nothing is executed, imported into chat, or played
 as media. Filters, page size, and the open example stay in the address bar.
 **Back to datasets** returns to the catalog search, facets, and sort you came
 from. A direct link without that return state goes to `/datasets`.
+On narrow screens, scroll the example table horizontally to read its columns.
+Expanded details stack each label above its stored value.
 
 ## Resuming a scenario run
 

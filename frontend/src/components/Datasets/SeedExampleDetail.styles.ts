@@ -1,6 +1,6 @@
 import { makeStyles, tokens } from '@fluentui/react-components'
 
-import { mobileTouchTargetHeight } from '@/styles/touchTargets'
+import { mobileTouchTargetHeight, NARROW_VIEWPORT_QUERY } from '@/styles/touchTargets'
 
 export const useSeedExampleDetailStyles = makeStyles({
   root: {
@@ -40,6 +40,9 @@ export const useSeedExampleDetailStyles = makeStyles({
     gap: `${tokens.spacingVerticalXS} ${tokens.spacingHorizontalM}`,
     margin: 0,
     minWidth: 0,
+    [NARROW_VIEWPORT_QUERY]: {
+      gridTemplateColumns: 'minmax(0, 1fr)',
+    },
   },
   term: {
     margin: 0,
@@ -50,6 +53,9 @@ export const useSeedExampleDetailStyles = makeStyles({
     margin: 0,
     minWidth: 0,
     overflowWrap: 'anywhere',
+    [NARROW_VIEWPORT_QUERY]: {
+      marginBottom: tokens.spacingVerticalS,
+    },
   },
   badges: {
     display: 'flex',

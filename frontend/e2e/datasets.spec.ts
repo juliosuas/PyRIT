@@ -184,10 +184,10 @@ const EXAMPLE_DETAIL = {
   ...FIRST_EXAMPLE,
   members: [
     {
-      id: "prompt-1",
+      id: "f347b3d7-b99a-444d-8277-511e96d68f04",
       seed_type: "prompt",
       value: "prompt body kept",
-      value_sha256: "abc",
+      value_sha256: "9edfa5336786e1dad5ba3585dcf1d53e58cab5b56d5aa1527464f19f7507d923",
       data_type: "text",
       name: "alpha prompt",
       dataset_name: "harmbench",
@@ -196,7 +196,7 @@ const EXAMPLE_DETAIL = {
       description: null,
       authors: null,
       groups: null,
-      source: null,
+      source: "https://example.org/dataset-provenance",
       date_added: "2026-01-01T00:00:00Z",
       added_by: "tester",
       metadata: null,
@@ -462,6 +462,45 @@ test.describe("dataset example table", () => {
     expect(metrics.textBottom).toBeLessThanOrEqual(metrics.cellBottom + 1);
     expect(metrics.badgeHeight).toBeGreaterThan(20);
     expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.clientWidth + 1);
+    const tableLayout = await table.evaluate((host) => ({
+      columnWidth: host.querySelector("th")?.getBoundingClientRect().width ?? 0,
+      wrapperWidth: host.parentElement?.clientWidth ?? 0,
+      scrollWidth: host.parentElement?.scrollWidth ?? 0,
+    }));
+    expect(tableLayout.columnWidth).toBeGreaterThanOrEqual(140);
+    expect(tableLayout.scrollWidth).toBeGreaterThan(tableLayout.wrapperWidth);
+    await table.getByRole("button", { name: "Show alpha" }).click();
+    await expect(page.getByRole("region", { name: "Example detail" })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  });
+
+  test("stacks detail labels above readable stored values at 390px", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await mockDatasetExamples(page);
+    await page.goto(`/datasets/detail?selection_key=${encodeURIComponent(DATASET.selection_key)}&example=example-1`);
+    const member = page.getByRole("region", { name: "Example detail" }).getByRole("article", { name: "Member 1" });
+    await expect(member).toBeVisible();
+    for (const label of ["ID", "Value hash", "Seed type", "Source"]) {
+      const dimensions = await member.getByRole("term").filter({ hasText: new RegExp(`^${label}$`) }).evaluate((term) => {
+        const value = term.nextElementSibling;
+        if (!value) throw new Error("Stored field has no value");
+        const termBox = term.getBoundingClientRect();
+        const valueBox = value.getBoundingClientRect();
+        return {
+          termLeft: termBox.left,
+          termBottom: termBox.bottom,
+          valueLeft: valueBox.left,
+          valueTop: valueBox.top,
+          valueWidth: valueBox.width,
+          clientWidth: value.clientWidth,
+          scrollWidth: value.scrollWidth,
+        };
+      });
+      expect(dimensions.valueTop).toBeGreaterThanOrEqual(dimensions.termBottom);
+      expect(dimensions.valueLeft).toBeCloseTo(dimensions.termLeft, 0);
+      expect(dimensions.valueWidth).toBeGreaterThanOrEqual(250);
+      expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1);
+    }
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   });
 });

@@ -77,7 +77,7 @@ export const useSeedExampleBrowserStyles = makeStyles({
   },
   table: {
     width: '100%',
-    minWidth: 0,
+    minWidth: '64rem',
     tableLayout: 'fixed',
   },
   cell: {
