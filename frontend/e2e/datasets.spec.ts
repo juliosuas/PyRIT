@@ -247,7 +247,10 @@ function seedPage(items: unknown[], nextCursor: string | null, requestCursor: st
   };
 }
 
-async function mockDatasetExamples(page: Page): Promise<string[]> {
+async function mockDatasetExamples(
+  page: Page,
+  detail: typeof EXAMPLE_DETAIL = EXAMPLE_DETAIL,
+): Promise<string[]> {
   const seedRequests: string[] = [];
   await page.route("**/api/**", async (route) => {
     const requestUrl = new URL(route.request().url());
@@ -291,7 +294,7 @@ async function mockDatasetExamples(page: Page): Promise<string[]> {
         throw new Error("Seed detail was requested without this dataset's selection key");
       }
       seedRequests.push(`${requestUrl.pathname}${requestUrl.search}`);
-      await route.fulfill(body(EXAMPLE_DETAIL));
+      await route.fulfill(body(detail));
       return;
     }
     if (apiPath === "/runtime") {
@@ -373,11 +376,12 @@ test.describe("dataset example table", () => {
     await expect(page.getByText("short preview")).toBeVisible();
     await expect(page).not.toHaveURL(/cursor=/);
 
+    await expect(table.locator("img, audio, video")).toHaveCount(0);
     await page.getByRole("button", { name: "Show alpha" }).click();
     const detail = page.getByRole("region", { name: "Example detail" });
     await expect(detail.getByText("prompt body kept")).toBeVisible();
     await expect(detail.getByText("photo.png")).toBeVisible();
-    await expect(detail.getByText("Media is not played in this view.")).toBeVisible();
+    await expect(detail.getByText("File is missing.")).toBeVisible();
     await expect(detail.locator("img, audio, video")).toHaveCount(0);
     await expect(page).toHaveURL(/example=example-1/);
     expect(seedRequests.some((request) => {
@@ -532,5 +536,141 @@ test.describe("dataset example touch targets", () => {
       expect(Math.round(box.height)).toBeGreaterThanOrEqual(44);
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  });
+});
+
+const MEDIA_URLS = {
+  image: "/api/media?path=%2Fdbdata%2Fseed-prompt-entries%2Fpic.png",
+  audio: "/api/media?path=%2Fdbdata%2Fseed-prompt-entries%2Ftalk.wav",
+  video: "/api/media?path=%2Fdbdata%2Fseed-prompt-entries%2Fclip.mp4",
+  broken: "/api/media?path=%2Fdbdata%2Fseed-prompt-entries%2Fbroken.mp4",
+  svg: "/api/media?path=%2Fdbdata%2Fseed-prompt-entries%2Fmark.svg",
+};
+
+function mediaMember(id: string, dataType: string, value: string, valueUrl: string) {
+  return {
+    id,
+    seed_type: "prompt",
+    value,
+    value_url: valueUrl,
+    value_sha256: "def",
+    data_type: dataType,
+    name: null,
+    dataset_name: "harmbench",
+    origin: "local",
+    harm_categories: [],
+    description: null,
+    authors: null,
+    groups: null,
+    source: null,
+    date_added: "2026-01-01T00:00:00Z",
+    added_by: "tester",
+    metadata: null,
+    prompt_group_id: "group-1",
+    sequence: 1,
+    role: "user",
+    parameters: null,
+    conditions: null,
+    response_json_schema: null,
+  };
+}
+
+test.describe("dataset media previews", () => {
+  test("loads image, audio, and video only from the open example and never autoplays", async ({ page }) => {
+    const mediaRequests: string[] = [];
+    page.on("request", (request) => {
+      if (new URL(request.url()).pathname === "/api/media") mediaRequests.push(request.url());
+    });
+    await mockDatasetExamples(page, {
+      ...EXAMPLE_DETAIL,
+      modalities: ["text", "image_path", "audio_path", "video_path"],
+      members: [
+        EXAMPLE_DETAIL.members[0],
+        mediaMember("image-1", "image_path", "/dbdata/seed-prompt-entries/pic.png", MEDIA_URLS.image),
+        mediaMember("audio-1", "audio_path", "/dbdata/seed-prompt-entries/talk.wav", MEDIA_URLS.audio),
+        mediaMember("video-1", "video_path", "/dbdata/seed-prompt-entries/clip.mp4", MEDIA_URLS.video),
+      ],
+    });
+    await page.route("**/api/media**", async (route) => {
+      const path = new URL(route.request().url()).searchParams.get("path") ?? "";
+      if (path.endsWith(".png")) {
+        await route.fulfill({
+          status: 200,
+          contentType: "image/png",
+          body: Buffer.from(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+            "base64",
+          ),
+        });
+        return;
+      }
+      await route.fulfill({ status: 200, contentType: "application/octet-stream", body: "media" });
+    });
+
+    await page.goto(`/datasets/detail?selection_key=${encodeURIComponent(DATASET.selection_key)}&example=example-1`);
+    const table = page.getByRole("table", { name: "Examples" });
+    const detail = page.getByRole("region", { name: "Example detail" });
+    await expect(detail.getByText("prompt body kept")).toBeVisible();
+    await expect(detail.getByText("/dbdata/seed-prompt-entries/pic.png")).toBeVisible();
+    await expect(table.locator("img, audio, video")).toHaveCount(0);
+    await expect(detail.locator("img, audio, video")).toHaveCount(0);
+    expect(mediaRequests).toEqual([]);
+
+    await detail.getByRole("button", { name: "Show image preview" }).click();
+    const image = detail.getByRole("img", { name: "image seed" });
+    await expect(image).toHaveAttribute("src", MEDIA_URLS.image);
+    await expect(image).toHaveAttribute("loading", "lazy");
+    await expect.poll(() => mediaRequests.length).toBe(1);
+
+    await detail.getByRole("button", { name: "Show audio preview" }).click();
+    const audio = detail.locator("audio");
+    await expect(audio).toHaveAttribute("src", MEDIA_URLS.audio);
+    await expect(audio).toHaveAttribute("preload", "none");
+    await expect(audio).toHaveJSProperty("autoplay", false);
+    await expect(audio).toHaveJSProperty("paused", true);
+
+    await detail.getByRole("button", { name: "Show video preview" }).click();
+    const video = detail.locator("video");
+    await expect(video).toHaveAttribute("src", MEDIA_URLS.video);
+    await expect(video).toHaveAttribute("preload", "none");
+    await expect(video).toHaveJSProperty("autoplay", false);
+    await expect(video).toHaveJSProperty("paused", true);
+    expect(mediaRequests.filter((url) => url.includes("talk.wav") || url.includes("clip.mp4"))).toEqual([]);
+
+    await detail.getByRole("button", { name: "Hide video preview" }).click();
+    await expect(detail.locator("video")).toHaveCount(0);
+    await expect(table).toBeVisible();
+    await expect(table.getByRole("row")).toHaveCount(3);
+  });
+
+  test("shows broken and unsupported media without breaking the example table", async ({ page }) => {
+    await mockDatasetExamples(page, {
+      ...EXAMPLE_DETAIL,
+      members: [
+        EXAMPLE_DETAIL.members[0],
+        mediaMember("video-1", "video_path", "/dbdata/seed-prompt-entries/broken.mp4", MEDIA_URLS.broken),
+        mediaMember("mark-1", "image_path", "/dbdata/seed-prompt-entries/mark.svg", MEDIA_URLS.svg),
+      ],
+    });
+    await page.route("**/api/media**", async (route) => {
+      await route.fulfill({ status: 404, contentType: "text/plain", body: "missing" });
+    });
+
+    await page.goto(`/datasets/detail?selection_key=${encodeURIComponent(DATASET.selection_key)}&example=example-1`);
+    const table = page.getByRole("table", { name: "Examples" });
+    const detail = page.getByRole("region", { name: "Example detail" });
+    await expect(table).toBeVisible();
+    await expect(detail.getByText("This format cannot be previewed.")).toBeVisible();
+    await expect(detail.getByRole("link", { name: "Download" })).toHaveAttribute("href", MEDIA_URLS.svg);
+    await expect(detail.locator("img, audio, video")).toHaveCount(0);
+
+    await detail.getByRole("button", { name: "Show video preview" }).click();
+    const video = detail.locator("video");
+    await expect(video).toHaveJSProperty("paused", true);
+    await video.evaluate((element: HTMLVideoElement) => element.play().catch(() => undefined));
+    await expect(detail.getByText(/Video failed to load/)).toBeVisible();
+    await expect(detail.getByRole("button", { name: "Retry video" })).toBeVisible();
+    await expect(table.getByRole("row")).toHaveCount(3);
+    await expect(detail.getByText("prompt body kept")).toBeVisible();
   });
 });

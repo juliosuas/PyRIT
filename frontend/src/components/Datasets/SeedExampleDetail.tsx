@@ -4,14 +4,17 @@ import type { ReactNode, Ref } from 'react'
 import { Badge, Button, Text } from '@fluentui/react-components'
 import { ClipboardRegular } from '@fluentui/react-icons'
 
+import MediaPreview from '@/components/Media/MediaPreview'
 import type { SeedCondition, SeedExampleDetailResponse, SeedRecord } from '@/types'
+import { basenameFromValue, mapMediaUrl } from '@/utils/media'
 
 import { useSeedExampleDetailStyles } from './SeedExampleDetail.styles'
 
 const MISSING_LABEL = 'Missing'
 const NONE_LABEL = 'None'
 const COPY_FAILED_MESSAGE = 'Could not copy to the clipboard.'
-const MEDIA_DATA_TYPES = new Set(['image_path', 'audio_path', 'video_path', 'binary_path'])
+const FILE_MISSING_MESSAGE = 'File is missing.'
+const UNSUPPORTED_MESSAGE = 'This format cannot be previewed.'
 
 interface SeedExampleDetailProps {
   detail: SeedExampleDetailResponse
@@ -109,6 +112,44 @@ interface MemberViewProps {
   onCopy: (key: string, value: string) => void
 }
 
+function MemberMedia({ member }: { member: SeedRecord }) {
+  const styles = useSeedExampleDetailStyles()
+  const mapped = mapMediaUrl({
+    dataType: member.data_type,
+    value: member.value,
+    valueUrl: member.value_url,
+  })
+  if (mapped.status === 'none') return null
+  if (mapped.status === 'missing') {
+    return <p className={styles.note} role="status">{FILE_MISSING_MESSAGE}</p>
+  }
+  if (mapped.status === 'unsupported') {
+    return (
+      <p className={styles.note}>
+        {UNSUPPORTED_MESSAGE}
+        {mapped.url ? (
+          <>
+            {' '}
+            <a href={mapped.url} download={basenameFromValue(member.value, 'download')} rel="noopener noreferrer">
+              Download
+            </a>
+          </>
+        ) : null}
+      </p>
+    )
+  }
+  const label = member.name ?? `${mapped.kind} seed`
+  return (
+    <MediaPreview
+      type={mapped.kind}
+      src={mapped.url}
+      alt={label}
+      lazy
+      recovery
+    />
+  )
+}
+
 function MemberView({ member, position, copiedKey, failedKey, onCopy }: MemberViewProps) {
   const styles = useSeedExampleDetailStyles()
   const valueKey = `${member.id}:value`
@@ -151,9 +192,7 @@ function MemberView({ member, position, copiedKey, failedKey, onCopy }: MemberVi
       {member.seed_type === 'simulated_conversation' && (
         <p className={styles.note}>Stored configuration. This view does not run it.</p>
       )}
-      {MEDIA_DATA_TYPES.has(member.data_type) && (
-        <p className={styles.note}>Media is not played in this view.</p>
-      )}
+      <MemberMedia member={member} />
       <pre className={styles.value} data-testid={`seed-value-${member.id}`}>{member.value}</pre>
       <div className={styles.actions}>
         <Button
@@ -180,7 +219,7 @@ function MemberView({ member, position, copiedKey, failedKey, onCopy }: MemberVi
   )
 }
 
-/** Inspection view for stored members. Values stay text; nothing is executed or played. */
+/** Inspection view for stored members. Text stays text. Media loads only when asked and never plays itself. */
 export default function SeedExampleDetail({ detail, headingRef }: SeedExampleDetailProps) {
   const styles = useSeedExampleDetailStyles()
   const [copiedKey, setCopiedKey] = useState<string | null>(null)

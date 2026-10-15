@@ -115,7 +115,8 @@ describe('SeedExampleDetail', () => {
     expect(within(members[1]).getByText('Stored configuration. This view does not run it.')).toBeInTheDocument()
     expect(within(members[1]).getByTestId('seed-value-config-1').textContent).toBe(CONFIG_VALUE)
     expect(screen.queryByText('Num turns')).not.toBeInTheDocument()
-    expect(within(members[2]).getByText('Media is not played in this view.')).toBeInTheDocument()
+    expect(within(members[2]).getByText('File is missing.')).toBeInTheDocument()
+    expect(within(members[2]).getByText('<img src=x onerror=alert(1)> /tmp/secret.png')).toBeInTheDocument()
     expect(document.querySelector('img')).toBeNull()
     expect(document.querySelector('audio')).toBeNull()
     expect(document.querySelector('video')).toBeNull()
@@ -144,5 +145,40 @@ describe('SeedExampleDetail', () => {
     await user.click(screen.getAllByRole('button', { name: 'Copy ID' })[0])
     expect(writeText).toHaveBeenCalledWith('prompt-1')
     expect(await screen.findByRole('alert')).toHaveTextContent('Could not copy to the clipboard.')
+  })
+
+  it('previews a signed blob URL on demand and keeps the stored reference', async () => {
+    const user = userEvent.setup()
+    const stored = 'https://account.blob.core.windows.net/container/clip.mp4'
+    const signed = `${stored}?sig=signed`
+    renderDetail({
+      ...DETAIL,
+      members: [
+        member({ id: 'prompt-1', value: EXACT_VALUE, data_type: 'text' }),
+        member({ id: 'clip-1', value: stored, value_url: signed, data_type: 'video_path' }),
+        member({
+          id: 'mark-1',
+          value: '/dbdata/seed-prompt-entries/mark.svg',
+          value_url: '/api/media?path=%2Fdbdata%2Fseed-prompt-entries%2Fmark.svg',
+          data_type: 'image_path',
+        }),
+      ],
+    })
+
+    expect(screen.getByTestId('seed-value-clip-1')).toHaveTextContent(stored)
+    expect(screen.queryByTestId('video-player')).not.toBeInTheDocument()
+    expect(screen.queryByRole('img')).not.toBeInTheDocument()
+    expect(screen.getByText('This format cannot be previewed.')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Download' })).toHaveAttribute(
+      'href',
+      '/api/media?path=%2Fdbdata%2Fseed-prompt-entries%2Fmark.svg',
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Show video preview' }))
+    const video = screen.getByTestId('video-player')
+    expect(video).toHaveAttribute('src', signed)
+    expect(video).not.toHaveAttribute('autoplay')
+    expect(video).toHaveAttribute('preload', 'none')
+    expect(screen.getByTestId('seed-value-prompt-1').textContent).toBe(EXACT_VALUE)
   })
 })
