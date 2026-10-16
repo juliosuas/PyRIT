@@ -8,7 +8,6 @@ export const useMediaPreviewStyles = makeStyles({
     display: 'inline-block',
     width: 'fit-content',
     maxWidth: 'min(400px, 100%)',
-    maxHeight: '400px',
     minWidth: 'min(100px, 100%)',
     minHeight: '60px',
   },

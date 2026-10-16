@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { expect, test, type Page } from "./_fixtures";
 import { mockVersion } from "./_compatibility";
 import { READY_RUNTIME } from "./_runtime";
@@ -672,5 +674,139 @@ test.describe("dataset media previews", () => {
     await expect(detail.getByRole("button", { name: "Retry video" })).toBeVisible();
     await expect(table.getByRole("row")).toHaveCount(3);
     await expect(detail.getByText("prompt body kept")).toBeVisible();
+  });
+
+  test("opens a cross-origin download in a new tab and stays on the example", async ({ page }) => {
+    const signed = "https://account.blob.core.windows.net/container/clip.mp4?sig=expired";
+    await mockDatasetExamples(page, {
+      ...EXAMPLE_DETAIL,
+      members: [
+        EXAMPLE_DETAIL.members[0],
+        mediaMember("video-1", "video_path", "https://account.blob.core.windows.net/container/clip.mp4", signed),
+      ],
+    });
+    await page.context().route("https://account.blob.core.windows.net/**", async (route) => {
+      await route.fulfill({ status: 403, contentType: "text/plain", body: "expired" });
+    });
+
+    await page.goto(`/datasets/detail?selection_key=${encodeURIComponent(DATASET.selection_key)}&example=example-1`);
+    const detail = page.getByRole("region", { name: "Example detail" });
+    const stayed = page.url();
+    await detail.getByRole("button", { name: "Show video preview" }).click();
+    const video = detail.locator("video");
+    await video.evaluate((element: HTMLVideoElement) => element.play().catch(() => undefined));
+    await expect(detail.getByText(/Video failed to load/)).toBeVisible();
+
+    const popupPromise = page.waitForEvent("popup");
+    await detail.getByRole("link", { name: "Open in new tab" }).click();
+    const popup = await popupPromise;
+    await expect.poll(() => popup.url()).toContain("blob.core.windows.net");
+    await expect(page).toHaveURL(stayed);
+    await expect(detail.getByText("prompt body kept")).toBeVisible();
+    await expect(page.getByRole("table", { name: "Examples" })).toBeVisible();
+    await popup.close();
+  });
+
+  test("retries an expired signature with a newly signed url", async ({ page }) => {
+    const stored = "https://account.blob.core.windows.net/container/pic.png";
+    const expired = `${stored}?sig=expired`;
+    const fresh = `${stored}?sig=fresh`;
+    let signature: string = expired;
+    await mockDatasetExamples(page, {
+      ...EXAMPLE_DETAIL,
+      members: [
+        EXAMPLE_DETAIL.members[0],
+        mediaMember("image-1", "image_path", stored, expired),
+      ],
+    });
+    await page.route("**/api/datasets/seeds/example-1**", async (route) => {
+      const detail = {
+        ...EXAMPLE_DETAIL,
+        members: [
+          EXAMPLE_DETAIL.members[0],
+          mediaMember("image-1", "image_path", stored, signature),
+        ],
+      };
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(detail) });
+    });
+    await page.context().route("https://account.blob.core.windows.net/**", async (route) => {
+      const expiredRequest = route.request().url().includes("sig=expired");
+      await route.fulfill(expiredRequest
+        ? { status: 403, contentType: "text/plain", body: "expired" }
+        : {
+          status: 200,
+          contentType: "image/png",
+          body: Buffer.from(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+            "base64",
+          ),
+        });
+    });
+
+    const mediaRequests: string[] = [];
+    page.on("request", (request) => {
+      if (request.url().includes("blob.core.windows.net")) mediaRequests.push(request.url());
+    });
+    await page.goto(`/datasets/detail?selection_key=${encodeURIComponent(DATASET.selection_key)}&example=example-1`);
+    const detail = page.getByRole("region", { name: "Example detail" });
+    await expect(detail.getByTestId("seed-value-image-1")).toHaveText(stored);
+    await detail.getByRole("button", { name: "Show image preview" }).click();
+    await expect(detail.getByText(/Image failed to load/)).toBeVisible();
+    expect(mediaRequests).toEqual([expired]);
+
+    signature = fresh;
+    await detail.getByRole("button", { name: "Retry image" }).click();
+    const image = detail.locator("img");
+    await expect.poll(() => image.evaluate((element: HTMLImageElement) => element.naturalWidth)).toBeGreaterThan(0);
+    await expect(image).toHaveAttribute("src", fresh);
+    expect(mediaRequests).toContain(fresh);
+    await expect(detail.getByText(/Image failed to load/)).toHaveCount(0);
+    await expect(detail.getByTestId("seed-value-image-1")).toHaveText(stored);
+    await expect(page.getByRole("region", { name: "Example detail" })).toBeVisible();
+  });
+
+  test("keeps a portrait image above its stored value at desktop and mobile widths", async ({ page }) => {
+    const portrait = readFileSync(new URL("./fixtures/portrait-600x1200.png", import.meta.url));
+    await mockDatasetExamples(page, {
+      ...EXAMPLE_DETAIL,
+      members: [
+        EXAMPLE_DETAIL.members[0],
+        mediaMember("image-1", "image_path", "/dbdata/seed-prompt-entries/portrait.png", "/api/media?path=%2Fdbdata%2Fseed-prompt-entries%2Fportrait.png"),
+      ],
+    });
+    await page.route("**/api/media**", async (route) => {
+      await route.fulfill({ status: 200, contentType: "image/png", body: portrait });
+    });
+
+    await page.goto(`/datasets/detail?selection_key=${encodeURIComponent(DATASET.selection_key)}&example=example-1`);
+    for (const width of [1280, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      const detail = page.getByRole("region", { name: "Example detail" });
+      await detail.getByRole("button", { name: "Show image preview" }).click();
+      const image = detail.getByRole("img", { name: "image seed" });
+      const value = detail.getByTestId("seed-value-image-1");
+      await image.scrollIntoViewIfNeeded();
+      await expect.poll(() => image.evaluate((element: HTMLImageElement) => (
+        element.naturalWidth === 600
+        && element.naturalHeight === 1200
+        && element.getBoundingClientRect().height > 100
+      ))).toBe(true);
+      const layout = await image.evaluate((element) => {
+        const stored = element.ownerDocument.querySelector("[data-testid='seed-value-image-1']");
+        if (!stored) throw new Error("Stored value is missing");
+        const imageBox = element.getBoundingClientRect();
+        const valueBox = stored.getBoundingClientRect();
+        return {
+          imageHeight: imageBox.height,
+          imageBottom: imageBox.bottom,
+          valueTop: valueBox.top,
+        };
+      });
+      expect(layout.imageHeight).toBeGreaterThan(100);
+      expect(layout.imageHeight).toBeLessThanOrEqual(404);
+      expect(layout.valueTop).toBeGreaterThanOrEqual(layout.imageBottom - 1);
+      await expect(value).toBeVisible();
+      await detail.getByRole("button", { name: "Hide image preview" }).click();
+    }
   });
 });

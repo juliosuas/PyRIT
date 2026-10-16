@@ -171,6 +171,49 @@ describe('useSeedExampleDetail', () => {
     expect(mockDetail).toHaveBeenCalledTimes(2)
   })
 
+  it('refreshes one display url without clearing the open example or its stored value', async () => {
+    const stored = 'https://account.blob.core.windows.net/container/pic.png'
+    const expired = {
+      ...DETAIL,
+      members: [{ id: 'image-1', value: stored, value_url: `${stored}?sig=expired` }],
+    } as SeedExampleDetailResponse
+    const fresh = {
+      ...DETAIL,
+      members: [{ id: 'image-1', value: stored, value_url: `${stored}?sig=fresh` }],
+    } as SeedExampleDetailResponse
+    mockDetail.mockResolvedValueOnce(expired).mockResolvedValueOnce(fresh)
+    const { result } = renderHook(() => useSeedExampleDetail('dataset:named:harmbench', 'example-1', false, 'gen-1'))
+    await waitFor(() => expect(result.current.detail?.members[0]?.value_url).toContain('sig=expired'))
+
+    let next: string | null = null
+    await act(async () => {
+      next = await result.current.refreshDisplayUrls('image-1')
+    })
+    expect(next).toBe(`${stored}?sig=fresh`)
+    expect(result.current.detail?.members[0]?.value).toBe(stored)
+    expect(result.current.detail?.members[0]?.value_url).toBe(`${stored}?sig=fresh`)
+    expect(result.current.loading).toBe(false)
+    expect(mockDetail).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps the open example when a display-url refresh fails', async () => {
+    const stored = 'https://account.blob.core.windows.net/container/pic.png'
+    const expired = {
+      ...DETAIL,
+      members: [{ id: 'image-1', value: stored, value_url: `${stored}?sig=expired` }],
+    } as SeedExampleDetailResponse
+    mockDetail.mockResolvedValueOnce(expired).mockRejectedValueOnce(new Error('unavailable'))
+    const { result } = renderHook(() => useSeedExampleDetail('dataset:named:harmbench', 'example-1', false, 'gen-1'))
+    await waitFor(() => expect(result.current.detail).not.toBeNull())
+
+    await act(async () => {
+      await expect(result.current.refreshDisplayUrls('image-1')).rejects.toThrow('unavailable')
+    })
+    expect(result.current.detail?.members[0]?.value_url).toContain('sig=expired')
+    expect(result.current.loading).toBe(false)
+    expect(result.current.error).toBeNull()
+  })
+
   it('does not request a detail when the example id is repeated or absent', async () => {
     renderHook(() => useSeedExampleDetail('dataset:named:harmbench', null, true, 'gen-1'))
     await act(async () => { await Promise.resolve() })

@@ -150,6 +150,36 @@ function dataUriKind(url: string): MediaPreviewKind | 'unsupported' | null {
   return 'unsupported'
 }
 
+export interface MediaAccessLink {
+  readonly href: string
+  readonly label: 'Download' | 'Open in new tab'
+  /** Set only when the browser will honor the download attribute. */
+  readonly downloadName: string | null
+  readonly openInNewTab: boolean
+}
+
+/**
+ * Same-origin, blob, and data URLs can download in place. A signed blob URL is
+ * cross-origin, and browsers ignore `download` there and navigate the current tab.
+ */
+export function mediaAccessLink(url: string, filename: string, pageOrigin: string): MediaAccessLink {
+  let sameDocument = url.startsWith('/') || url.startsWith('blob:') || url.startsWith('data:')
+  if (!sameDocument) {
+    try {
+      const parsed = new URL(url, pageOrigin)
+      sameDocument = parsed.protocol === 'blob:'
+        || parsed.protocol === 'data:'
+        || parsed.origin === pageOrigin
+    } catch {
+      sameDocument = false
+    }
+  }
+  if (sameDocument) {
+    return { href: url, label: 'Download', downloadName: filename, openInNewTab: false }
+  }
+  return { href: url, label: 'Open in new tab', downloadName: null, openInNewTab: true }
+}
+
 function supportedDownloadUrl(url: string): string | null {
   // The media route attaches non-inline types. Anywhere else, refuse active content.
   if (url.startsWith('/api/media')) return url

@@ -1,6 +1,6 @@
-import type { ComponentProps } from 'react'
+import { useState, type ComponentProps } from 'react'
 
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { FluentProvider, webLightTheme } from '@fluentui/react-components'
 
@@ -93,10 +93,92 @@ describe('MediaPreview', () => {
     expect(screen.getByTestId('image-error')).toHaveTextContent(
       'Image failed to load. The file may be missing, or the link may be expired or inaccessible.',
     )
-    expect(screen.getByRole('link', { name: 'Download' })).toHaveAttribute('href', '/api/media?path=%2Fdbdata%2Fpic.png')
+    const download = screen.getByRole('link', { name: 'Download' })
+    expect(download).toHaveAttribute('href', '/api/media?path=%2Fdbdata%2Fpic.png')
+    expect(download).toHaveAttribute('download', 'pic.png')
+    expect(download).not.toHaveAttribute('target')
 
     await user.click(screen.getByRole('button', { name: 'Retry image' }))
     expect(screen.getByAltText('pic')).toBeInTheDocument()
     expect(screen.queryByTestId('image-error')).not.toBeInTheDocument()
+  })
+
+  it('should open a cross-origin file in a new tab instead of leaving the page', async () => {
+    const user = userEvent.setup()
+    const signed = 'https://account.blob.core.windows.net/container/clip.mp4?sig=expired'
+    renderPreview({ type: 'video', src: signed, lazy: true, recovery: true })
+    await user.click(screen.getByRole('button', { name: 'Show video preview' }))
+    fireEvent.error(screen.getByTestId('video-player'))
+
+    const link = screen.getByRole('link', { name: 'Open in new tab' })
+    expect(link).toHaveAttribute('href', signed)
+    expect(link).toHaveAttribute('target', '_blank')
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+    expect(link).not.toHaveAttribute('download')
+  })
+
+  it('should retry with a newly signed url and refresh again when the preview is reopened', async () => {
+    const user = userEvent.setup()
+    const expired = 'https://account.blob.core.windows.net/container/pic.png?sig=expired'
+    const fresh = 'https://account.blob.core.windows.net/container/pic.png?sig=fresh'
+    const refresh = jest.fn(async () => fresh)
+
+    function Harness() {
+      const [src, setSrc] = useState(expired)
+      return (
+        <FluentProvider theme={webLightTheme}>
+          <MediaPreview
+            type="image"
+            src={src}
+            alt="pic"
+            lazy
+            recovery
+            onRetry={async () => {
+              const next = await refresh()
+              await Promise.resolve()
+              setSrc(next)
+              return next
+            }}
+          />
+        </FluentProvider>
+      )
+    }
+
+    render(<Harness />)
+    await user.click(screen.getByRole('button', { name: 'Show image preview' }))
+    expect(screen.getByAltText('pic')).toHaveAttribute('src', expired)
+    expect(refresh).not.toHaveBeenCalled()
+
+    fireEvent.error(screen.getByAltText('pic'))
+    await user.click(screen.getByRole('button', { name: 'Retry image' }))
+    await waitFor(() => expect(screen.getByAltText('pic')).toHaveAttribute('src', fresh))
+    expect(screen.queryByTestId('image-error')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Hide image preview' }))
+    await user.click(screen.getByRole('button', { name: 'Show image preview' }))
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(2))
+    expect(screen.getByAltText('pic')).toHaveAttribute('src', fresh)
+  })
+
+  it('should stay on the failure when refreshing the signed url fails', async () => {
+    const user = userEvent.setup()
+    let settled = false
+    renderPreview({
+      type: 'image',
+      src: 'https://account.blob.core.windows.net/container/pic.png?sig=expired',
+      alt: 'pic',
+      lazy: true,
+      recovery: true,
+      onRetry: async () => {
+        settled = true
+        throw new Error('unavailable')
+      },
+    })
+    await user.click(screen.getByRole('button', { name: 'Show image preview' }))
+    fireEvent.error(screen.getByAltText('pic'))
+    await user.click(screen.getByRole('button', { name: 'Retry image' }))
+    await waitFor(() => expect(settled).toBe(true))
+    expect(screen.getByTestId('image-error')).toBeInTheDocument()
+    expect(screen.queryByAltText('pic')).not.toBeInTheDocument()
   })
 })

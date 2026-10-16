@@ -1,4 +1,6 @@
-import { render, screen, within } from '@testing-library/react'
+import { useState } from 'react'
+
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { FluentProvider, webLightTheme } from '@fluentui/react-components'
 
@@ -169,10 +171,13 @@ describe('SeedExampleDetail', () => {
     expect(screen.queryByTestId('video-player')).not.toBeInTheDocument()
     expect(screen.queryByRole('img')).not.toBeInTheDocument()
     expect(screen.getByText('This format cannot be previewed.')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Download' })).toHaveAttribute(
+    const download = screen.getByRole('link', { name: 'Download' })
+    expect(download).toHaveAttribute(
       'href',
       '/api/media?path=%2Fdbdata%2Fseed-prompt-entries%2Fmark.svg',
     )
+    expect(download).toHaveAttribute('download', 'mark.svg')
+    expect(download).not.toHaveAttribute('target')
 
     await user.click(screen.getByRole('button', { name: 'Show video preview' }))
     const video = screen.getByTestId('video-player')
@@ -180,5 +185,60 @@ describe('SeedExampleDetail', () => {
     expect(video).not.toHaveAttribute('autoplay')
     expect(video).toHaveAttribute('preload', 'none')
     expect(screen.getByTestId('seed-value-prompt-1').textContent).toBe(EXACT_VALUE)
+  })
+
+  it('should open an unsupported cross-origin file in a new tab', () => {
+    const signed = 'https://account.blob.core.windows.net/container/clip.mp4?sig=signed'
+    renderDetail({
+      ...DETAIL,
+      members: [
+        member({
+          id: 'odd-1',
+          data_type: 'image_path',
+          value: 'https://account.blob.core.windows.net/container/clip.mp4',
+          value_url: signed,
+        }),
+      ],
+    })
+    const link = screen.getByRole('link', { name: 'Open in new tab' })
+    expect(link).toHaveAttribute('href', signed)
+    expect(link).toHaveAttribute('target', '_blank')
+    expect(link).not.toHaveAttribute('download')
+  })
+
+  it('should retry a 403 with a new signature and keep the stored reference', async () => {
+    const user = userEvent.setup()
+    const stored = 'https://account.blob.core.windows.net/container/pic.png'
+    const expired = `${stored}?sig=expired`
+    const fresh = `${stored}?sig=fresh`
+
+    function Harness() {
+      const [url, setUrl] = useState(expired)
+      return (
+        <FluentProvider theme={webLightTheme}>
+          <SeedExampleDetail
+            detail={{
+              ...DETAIL,
+              members: [
+                member({ id: 'image-1', data_type: 'image_path', value: stored, value_url: url, name: null }),
+              ],
+            }}
+            onRefreshUrls={async () => {
+              await Promise.resolve()
+              setUrl(fresh)
+              return fresh
+            }}
+          />
+        </FluentProvider>
+      )
+    }
+
+    render(<Harness />)
+    await user.click(screen.getByRole('button', { name: 'Show image preview' }))
+    fireEvent.error(screen.getByAltText('image seed'))
+    await user.click(screen.getByRole('button', { name: 'Retry image' }))
+    await waitFor(() => expect(screen.getByAltText('image seed')).toHaveAttribute('src', fresh))
+    expect(screen.getByTestId('seed-value-image-1')).toHaveTextContent(stored)
+    expect(screen.queryByTestId('image-error')).not.toBeInTheDocument()
   })
 })

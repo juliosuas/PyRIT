@@ -1,4 +1,4 @@
-import { mapMediaUrl } from './media'
+import { mapMediaUrl, mediaAccessLink } from './media'
 
 const SIGNED = 'https://account.blob.core.windows.net/container/seed-prompt-entries/clip.mp4?sig=signed'
 const RAW_BLOB = 'https://account.blob.core.windows.net/container/seed-prompt-entries/clip.mp4'
@@ -114,5 +114,30 @@ describe('mapMediaUrl', () => {
 
   it('should return missing when a media value is empty', () => {
     expect(mapMediaUrl({ dataType: 'video_path', value: '   ', valueUrl: null })).toEqual({ status: 'missing' })
+  })
+})
+
+describe('mediaAccessLink', () => {
+  const origin = 'http://127.0.0.1:3000'
+
+  it('should download same-origin, blob, and data urls in place', () => {
+    expect(mediaAccessLink('/api/media?path=%2Fdbdata%2Fpic.png', 'pic.png', origin)).toEqual({
+      href: '/api/media?path=%2Fdbdata%2Fpic.png',
+      label: 'Download',
+      downloadName: 'pic.png',
+      openInNewTab: false,
+    })
+    expect(mediaAccessLink(`${origin}/api/media?path=%2Fdbdata%2Fpic.png`, 'pic.png', origin).label).toBe('Download')
+    expect(mediaAccessLink('blob:http://127.0.0.1:3000/11111111-1111-1111-1111-111111111111', 'clip.mp4', origin).openInNewTab).toBe(false)
+    expect(mediaAccessLink('data:image/png;base64,AAAA', 'pic.png', origin).openInNewTab).toBe(false)
+  })
+
+  it('should open a signed blob url in a new tab', () => {
+    expect(mediaAccessLink(SIGNED, 'clip.mp4', origin)).toEqual({
+      href: SIGNED,
+      label: 'Open in new tab',
+      downloadName: null,
+      openInNewTab: true,
+    })
   })
 })

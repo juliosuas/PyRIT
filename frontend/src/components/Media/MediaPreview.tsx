@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { Button, Spinner, Text } from '@fluentui/react-components'
 
-import { basenameFromValue } from '@/utils/media'
+import { basenameFromValue, mediaAccessLink } from '@/utils/media'
 
 import { useMediaPreviewStyles } from './MediaPreview.styles'
 
@@ -18,6 +18,12 @@ export interface MediaPreviewProps {
   readonly lazy?: boolean
   /** Offer retry and download after a failed load. Chat leaves this off. */
   readonly recovery?: boolean
+  /**
+   * Dataset details refetch a signed display URL before trying again.
+   * Return that URL so this preview can use it in the same update.
+   * Chat leaves this unset, so a retry only remounts the current src.
+   */
+  readonly onRetry?: () => Promise<string | void> | string | void
 }
 
 function stopPlayback(media: HTMLMediaElement | null): void {
@@ -29,6 +35,29 @@ function failureMessage(type: MediaPreviewProps['type'], recovery: boolean): str
   const label = type === 'image' ? 'Image' : type === 'audio' ? 'Audio' : 'Video'
   if (!recovery) return `${label} failed to load`
   return `${label} failed to load. The file may be missing, or the link may be expired or inaccessible.`
+}
+
+export function MediaAccessLink({
+  url,
+  filename,
+  className,
+}: {
+  url: string
+  filename: string
+  className?: string
+}) {
+  const link = mediaAccessLink(url, filename, window.location.origin)
+  return (
+    <a
+      className={className}
+      href={link.href}
+      rel="noopener noreferrer"
+      {...(link.downloadName != null ? { download: link.downloadName } : {})}
+      {...(link.openInNewTab ? { target: '_blank' } : {})}
+    >
+      {link.label}
+    </a>
+  )
 }
 
 function RecoveryActions({
@@ -46,12 +75,10 @@ function RecoveryActions({
     <div className={styles.recovery}>
       <Text size={200} italic data-testid={`${type}-error`}>{failureMessage(type, true)}</Text>
       <div className={styles.actions}>
-        <Button className={styles.button} appearance="secondary" onClick={onRetry}>
+        <Button className={styles.button} appearance="secondary" onClick={() => { void onRetry() }}>
           {`Retry ${label}`}
         </Button>
-        <a className={styles.download} href={src} download={basenameFromValue(src, label)} rel="noopener noreferrer">
-          Download
-        </a>
+        <MediaAccessLink className={styles.download} url={src} filename={basenameFromValue(src, label)} />
       </div>
     </div>
   )
@@ -72,9 +99,11 @@ export default function MediaPreview({
   spinnerClassName,
   lazy = false,
   recovery = false,
+  onRetry,
 }: MediaPreviewProps) {
   const styles = useMediaPreviewStyles()
   const mediaRef = useRef<HTMLMediaElement | null>(null)
+  const openedOnce = useRef(false)
   const setMediaRef = useCallback((node: HTMLMediaElement | null) => {
     mediaRef.current = node
   }, [])
@@ -82,6 +111,9 @@ export default function MediaPreview({
   const [loaded, setLoaded] = useState(false)
   const [error, setError] = useState(false)
   const [attempt, setAttempt] = useState(0)
+  // Hold a refreshed URL until the src prop catches up, without an effect.
+  const [replacement, setReplacement] = useState<{ readonly from: string; readonly next: string } | null>(null)
+  const activeSrc = replacement != null && replacement.from === src ? replacement.next : src
   const onLoad = useCallback(() => setLoaded(true), [])
   const onError = useCallback(() => {
     setError(true)
@@ -95,10 +127,30 @@ export default function MediaPreview({
     }
   }, [open, attempt, error])
 
-  const retry = (): void => {
+  const refreshDisplayUrl = async (): Promise<boolean> => {
+    try {
+      const next = await onRetry?.()
+      if (typeof next === 'string' && next.length > 0) setReplacement({ from: src, next })
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  const retry = async (): Promise<void> => {
+    const refreshed = await refreshDisplayUrl()
+    if (!refreshed) return
     setError(false)
     setLoaded(false)
     setAttempt((current) => current + 1)
+  }
+
+  const reveal = async (): Promise<void> => {
+    // The first open uses the URL from the detail that was just loaded.
+    // Showing it again, after Hide, asks for a new signature first.
+    if (openedOnce.current) await refreshDisplayUrl()
+    openedOnce.current = true
+    setOpen(true)
   }
 
   const hide = (): void => {
@@ -110,7 +162,7 @@ export default function MediaPreview({
 
   if (!open) {
     return (
-      <Button className={styles.button} appearance="secondary" onClick={() => setOpen(true)}>
+      <Button className={styles.button} appearance="secondary" onClick={() => { void reveal() }}>
         {`Show ${type} preview`}
       </Button>
     )
@@ -129,11 +181,11 @@ export default function MediaPreview({
         {!loaded && !error && <Spinner size="small" className={spinnerClassName ?? styles.spinner} />}
         {error
           ? (recovery
-            ? <RecoveryActions type={type} src={src} onRetry={retry} />
+            ? <RecoveryActions type={type} src={activeSrc} onRetry={retry} />
             : <Text size={200} italic data-testid="image-error">{failureMessage(type, false)}</Text>)
           : <img
               key={attempt}
-              src={src}
+              src={activeSrc}
               alt={alt}
               className={loaded ? (className ?? styles.image) : (hiddenClassName ?? styles.imageHidden)}
               loading={lazy ? 'lazy' : undefined}
@@ -150,7 +202,7 @@ export default function MediaPreview({
       <>
         {hideButton}
         {recovery
-          ? <RecoveryActions type={type} src={src} onRetry={retry} />
+          ? <RecoveryActions type={type} src={activeSrc} onRetry={retry} />
           : <Text size={200} italic data-testid={`${type}-error`}>{failureMessage(type, false)}</Text>}
       </>
     )
@@ -166,7 +218,7 @@ export default function MediaPreview({
         <video
           key={attempt}
           ref={setMediaRef}
-          src={src}
+          src={activeSrc}
           controls
           autoPlay={false}
           preload={preload}
@@ -178,7 +230,7 @@ export default function MediaPreview({
         <audio
           key={attempt}
           ref={setMediaRef}
-          src={src}
+          src={activeSrc}
           controls
           autoPlay={false}
           preload={preload}

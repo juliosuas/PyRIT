@@ -4,7 +4,7 @@ import type { ReactNode, Ref } from 'react'
 import { Badge, Button, Text } from '@fluentui/react-components'
 import { ClipboardRegular } from '@fluentui/react-icons'
 
-import MediaPreview from '@/components/Media/MediaPreview'
+import MediaPreview, { MediaAccessLink } from '@/components/Media/MediaPreview'
 import type { SeedCondition, SeedExampleDetailResponse, SeedRecord } from '@/types'
 import { basenameFromValue, mapMediaUrl } from '@/utils/media'
 
@@ -19,6 +19,8 @@ const UNSUPPORTED_MESSAGE = 'This format cannot be previewed.'
 interface SeedExampleDetailProps {
   detail: SeedExampleDetailResponse
   headingRef?: Ref<HTMLHeadingElement>
+  /** Refetch signed display URLs for one member. The stored value stays unchanged. */
+  onRefreshUrls?: (memberId: string) => Promise<string | null>
 }
 
 function memberKeys(members: readonly SeedRecord[]): string[] {
@@ -112,7 +114,13 @@ interface MemberViewProps {
   onCopy: (key: string, value: string) => void
 }
 
-function MemberMedia({ member }: { member: SeedRecord }) {
+function MemberMedia({
+  member,
+  onRefreshUrls,
+}: {
+  member: SeedRecord
+  onRefreshUrls?: (memberId: string) => Promise<string | null>
+}) {
   const styles = useSeedExampleDetailStyles()
   const mapped = mapMediaUrl({
     dataType: member.data_type,
@@ -130,15 +138,19 @@ function MemberMedia({ member }: { member: SeedRecord }) {
         {mapped.url ? (
           <>
             {' '}
-            <a href={mapped.url} download={basenameFromValue(member.value, 'download')} rel="noopener noreferrer">
-              Download
-            </a>
+            <MediaAccessLink url={mapped.url} filename={basenameFromValue(member.value, 'download')} />
           </>
         ) : null}
       </p>
     )
   }
   const label = member.name ?? `${mapped.kind} seed`
+  const refreshUrl = onRefreshUrls == null
+    ? undefined
+    : async (): Promise<string | void> => {
+      const next = await onRefreshUrls(member.id)
+      return next ?? undefined
+    }
   return (
     <MediaPreview
       type={mapped.kind}
@@ -146,11 +158,19 @@ function MemberMedia({ member }: { member: SeedRecord }) {
       alt={label}
       lazy
       recovery
+      onRetry={refreshUrl}
     />
   )
 }
 
-function MemberView({ member, position, copiedKey, failedKey, onCopy }: MemberViewProps) {
+function MemberView({
+  member,
+  position,
+  copiedKey,
+  failedKey,
+  onCopy,
+  onRefreshUrls,
+}: MemberViewProps & { onRefreshUrls?: (memberId: string) => Promise<string | null> }) {
   const styles = useSeedExampleDetailStyles()
   const valueKey = `${member.id}:value`
   const idKey = `${member.id}:id`
@@ -192,7 +212,7 @@ function MemberView({ member, position, copiedKey, failedKey, onCopy }: MemberVi
       {member.seed_type === 'simulated_conversation' && (
         <p className={styles.note}>Stored configuration. This view does not run it.</p>
       )}
-      <MemberMedia member={member} />
+      <MemberMedia member={member} onRefreshUrls={onRefreshUrls} />
       <pre className={styles.value} data-testid={`seed-value-${member.id}`}>{member.value}</pre>
       <div className={styles.actions}>
         <Button
@@ -220,7 +240,7 @@ function MemberView({ member, position, copiedKey, failedKey, onCopy }: MemberVi
 }
 
 /** Inspection view for stored members. Text stays text. Media loads only when asked and never plays itself. */
-export default function SeedExampleDetail({ detail, headingRef }: SeedExampleDetailProps) {
+export default function SeedExampleDetail({ detail, headingRef, onRefreshUrls }: SeedExampleDetailProps) {
   const styles = useSeedExampleDetailStyles()
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
   const [failedKey, setFailedKey] = useState<string | null>(null)
@@ -273,6 +293,7 @@ export default function SeedExampleDetail({ detail, headingRef }: SeedExampleDet
           copiedKey={copiedKey}
           failedKey={failedKey}
           onCopy={copyText}
+          onRefreshUrls={onRefreshUrls}
         />
       ))}
     </section>

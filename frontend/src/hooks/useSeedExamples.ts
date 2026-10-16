@@ -18,6 +18,8 @@ interface SeedExampleDetailState {
   readonly error: ApiError | null
   readonly notFound: boolean
   readonly retry: () => void
+  /** Refetch signed display URLs without clearing the open example. Returns one member's new URL. */
+  readonly refreshDisplayUrls: (memberId: string) => Promise<string | null>
 }
 
 function listRequestKey(selectionKey: string, query: SeedBrowserQuery, generation: string): string {
@@ -165,5 +167,18 @@ export function useSeedExampleDetail(
     setRefetchCount((count) => count + 1)
   }, [exampleId, exampleRepeated, selectionKey])
 
-  return { detail, loading, error, notFound, retry }
+  const refreshDisplayUrls = useCallback(async (memberId: string): Promise<string | null> => {
+    if (!selectionKey || !exampleId || exampleRepeated) {
+      throw new Error('A dataset selection key is required to refresh a seed example.')
+    }
+    const response = await datasetsApi.getSeedExample(exampleId, selectionKey)
+    setDetail((current) => {
+      if (current == null || current.example_id !== response.example_id) return current
+      return response
+    })
+    const member = response.members.find((item) => item.id === memberId)
+    return member?.value_url ?? null
+  }, [exampleId, exampleRepeated, selectionKey])
+
+  return { detail, loading, error, notFound, retry, refreshDisplayUrls }
 }
