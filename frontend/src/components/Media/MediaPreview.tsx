@@ -109,6 +109,7 @@ export default function MediaPreview({
   const styles = useMediaPreviewStyles()
   const mediaRef = useRef<HTMLMediaElement | null>(null)
   const openedOnce = useRef(false)
+  const refreshSerial = useRef(0)
   const setMediaRef = useCallback((node: HTMLMediaElement | null) => {
     mediaRef.current = node
   }, [])
@@ -133,13 +134,22 @@ export default function MediaPreview({
     }
   }, [open, attempt, error])
 
+  useEffect(() => {
+    return () => {
+      refreshSerial.current += 1
+    }
+  }, [])
+
   const refreshDisplayUrl = async (): Promise<boolean> => {
+    const serial = ++refreshSerial.current
     try {
       const next = await onRetry?.()
+      if (serial !== refreshSerial.current) return false
       if (typeof next === 'string' && next.length > 0) setReplacement({ from: src, next })
       setRefreshFailed(false)
       return true
     } catch {
+      if (serial !== refreshSerial.current) return false
       setRefreshFailed(true)
       return false
     }
@@ -162,9 +172,11 @@ export default function MediaPreview({
   }
 
   const hide = (): void => {
+    refreshSerial.current += 1
     stopPlayback(mediaRef.current)
     setOpen(false)
     setError(false)
+    setRefreshFailed(false)
     setLoaded(false)
   }
 

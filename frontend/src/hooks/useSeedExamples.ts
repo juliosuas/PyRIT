@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { SeedBrowserQuery } from '@/components/Datasets/seedExampleQuery'
 import { datasetsApi } from '@/services/api'
@@ -18,7 +18,7 @@ interface SeedExampleDetailState {
   readonly error: ApiError | null
   readonly notFound: boolean
   readonly retry: () => void
-  /** Refetch one member's display URL. Other members keep the URL already on screen. */
+  /** Refetch one member's display URL. Other members, and any newer example, keep their URLs. */
   readonly refreshDisplayUrls: (memberId: string) => Promise<string | null>
 }
 
@@ -120,6 +120,9 @@ export function useSeedExampleDetail(
   const [error, setError] = useState<ApiError | null>(null)
   const [notFound, setNotFound] = useState(false)
   const [refetchCount, setRefetchCount] = useState(0)
+  const refreshSerial = useRef(0)
+  const refreshAbort = useRef<AbortController | null>(null)
+  const openExampleId = useRef(exampleId)
 
   if (activeRequest !== requestKey) {
     setActiveRequest(requestKey)
@@ -160,6 +163,15 @@ export function useSeedExampleDetail(
     }
   }, [requestKey, refetchCount, selectionKey, exampleId, exampleRepeated, generation])
 
+  useEffect(() => {
+    openExampleId.current = exampleId
+    return () => {
+      refreshSerial.current += 1
+      refreshAbort.current?.abort()
+      refreshAbort.current = null
+    }
+  }, [requestKey, exampleId])
+
   const retry = useCallback(() => {
     setLoading(exampleId != null && !exampleRepeated && selectionKey !== '')
     setError(null)
@@ -171,20 +183,37 @@ export function useSeedExampleDetail(
     if (!selectionKey || !exampleId || exampleRepeated) {
       throw new Error('A dataset selection key is required to refresh a seed example.')
     }
-    const response = await datasetsApi.getSeedExample(exampleId, selectionKey)
-    const refreshed = response.members.find((item) => item.id === memberId)
-    setDetail((current) => {
-      if (current == null || current.example_id !== response.example_id || refreshed == null) return current
-      let changed = false
-      const members = current.members.map((item) => {
-        if (item.id !== memberId || item.value_url === refreshed.value_url) return item
-        changed = true
-        return { ...item, value_url: refreshed.value_url }
+    refreshAbort.current?.abort()
+    const controller = new AbortController()
+    refreshAbort.current = controller
+    const serial = ++refreshSerial.current
+    const requestedExampleId = exampleId
+    const stillCurrent = (): boolean => (
+      serial === refreshSerial.current
+      && !controller.signal.aborted
+      && openExampleId.current === requestedExampleId
+    )
+    try {
+      const response = await datasetsApi.getSeedExample(exampleId, selectionKey, controller.signal)
+      if (!stillCurrent() || response.example_id !== requestedExampleId) return null
+      const refreshed = response.members.find((item) => item.id === memberId)
+      if (refreshed == null) return null
+      setDetail((current) => {
+        if (!stillCurrent() || current == null || current.example_id !== requestedExampleId) return current
+        let changed = false
+        const members = current.members.map((item) => {
+          if (item.id !== memberId || item.value_url === refreshed.value_url) return item
+          changed = true
+          return { ...item, value_url: refreshed.value_url }
+        })
+        if (!changed) return current
+        return { ...current, members }
       })
-      if (!changed) return current
-      return { ...current, members }
-    })
-    return refreshed?.value_url ?? null
+      return refreshed.value_url ?? null
+    } catch (err: unknown) {
+      if (!stillCurrent()) return null
+      throw err
+    }
   }, [exampleId, exampleRepeated, selectionKey])
 
   return { detail, loading, error, notFound, retry, refreshDisplayUrls }

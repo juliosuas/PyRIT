@@ -244,6 +244,100 @@ describe('useSeedExampleDetail', () => {
     expect(result.current.error).toBeNull()
   })
 
+  it('drops a refresh that resolves after the example is closed and reopened', async () => {
+    const stored = 'https://account.blob.core.windows.net/container/pic.png'
+    const opened = {
+      ...DETAIL,
+      members: [{ id: 'image-1', value: stored, value_url: `${stored}?sig=opened` }],
+    } as SeedExampleDetailResponse
+    const reopened = {
+      ...DETAIL,
+      members: [{ id: 'image-1', value: stored, value_url: `${stored}?sig=reopened` }],
+    } as SeedExampleDetailResponse
+    const stale = {
+      ...DETAIL,
+      members: [{ id: 'image-1', value: stored, value_url: `${stored}?sig=stale` }],
+    } as SeedExampleDetailResponse
+    let resolveRefresh: (value: SeedExampleDetailResponse) => void = () => {}
+    mockDetail
+      .mockResolvedValueOnce(opened)
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveRefresh = resolve }))
+      .mockResolvedValueOnce(reopened)
+
+    const { result, rerender } = renderHook(
+      ({ exampleId }: { exampleId: string | null }) => (
+        useSeedExampleDetail('dataset:named:harmbench', exampleId, false, 'gen-1')
+      ),
+      { initialProps: { exampleId: 'example-1' as string | null } },
+    )
+    await waitFor(() => expect(result.current.detail?.members[0]?.value_url).toContain('sig=opened'))
+
+    let refresh: Promise<string | null> = Promise.resolve(null)
+    act(() => {
+      refresh = result.current.refreshDisplayUrls('image-1')
+    })
+    rerender({ exampleId: null })
+    expect(result.current.detail).toBeNull()
+    rerender({ exampleId: 'example-1' })
+    await waitFor(() => expect(result.current.detail?.members[0]?.value_url).toContain('sig=reopened'))
+
+    await act(async () => {
+      resolveRefresh(stale)
+      await refresh
+    })
+    expect(result.current.detail?.example_id).toBe('example-1')
+    expect(result.current.detail?.members[0]?.value).toBe(stored)
+    expect(result.current.detail?.members[0]?.value_url).toBe(`${stored}?sig=reopened`)
+    expect(result.current.error).toBeNull()
+  })
+
+  it('drops a refresh that resolves after switching to another example', async () => {
+    const stored = 'https://account.blob.core.windows.net/container/pic.png'
+    const opened = {
+      ...DETAIL,
+      example_id: 'example-1',
+      members: [{ id: 'image-1', value: stored, value_url: `${stored}?sig=first` }],
+    } as SeedExampleDetailResponse
+    const other = {
+      ...DETAIL,
+      example_id: 'example-2',
+      members: [{ id: 'image-1', value: stored, value_url: `${stored}?sig=second` }],
+    } as SeedExampleDetailResponse
+    const stale = {
+      ...DETAIL,
+      example_id: 'example-1',
+      members: [{ id: 'image-1', value: stored, value_url: `${stored}?sig=stale` }],
+    } as SeedExampleDetailResponse
+    let resolveRefresh: (value: SeedExampleDetailResponse) => void = () => {}
+    mockDetail
+      .mockResolvedValueOnce(opened)
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveRefresh = resolve }))
+      .mockResolvedValueOnce(other)
+
+    const { result, rerender } = renderHook(
+      ({ exampleId }: { exampleId: string }) => (
+        useSeedExampleDetail('dataset:named:harmbench', exampleId, false, 'gen-1')
+      ),
+      { initialProps: { exampleId: 'example-1' } },
+    )
+    await waitFor(() => expect(result.current.detail?.example_id).toBe('example-1'))
+
+    let refresh: Promise<string | null> = Promise.resolve(null)
+    act(() => {
+      refresh = result.current.refreshDisplayUrls('image-1')
+    })
+    rerender({ exampleId: 'example-2' })
+    await waitFor(() => expect(result.current.detail?.members[0]?.value_url).toContain('sig=second'))
+
+    await act(async () => {
+      resolveRefresh(stale)
+      await refresh
+    })
+    expect(result.current.detail?.example_id).toBe('example-2')
+    expect(result.current.detail?.members[0]?.value_url).toBe(`${stored}?sig=second`)
+    expect(result.current.error).toBeNull()
+  })
+
   it('does not request a detail when the example id is repeated or absent', async () => {
     renderHook(() => useSeedExampleDetail('dataset:named:harmbench', null, true, 'gen-1'))
     await act(async () => { await Promise.resolve() })

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { FluentProvider, webLightTheme } from '@fluentui/react-components'
 
@@ -330,5 +330,63 @@ describe('SeedExampleDetail', () => {
     expect(document.body.innerHTML).not.toContain('data:text/html')
     expect(screen.queryByRole('link')).not.toBeInTheDocument()
     expect(document.querySelector('img')).toBeNull()
+  })
+
+  it('should ignore a refresh that fails after the example is closed and opened again', async () => {
+    const user = userEvent.setup()
+    const stored = 'https://account.blob.core.windows.net/container/pic.png'
+    const openedUrl = `${stored}?sig=opened`
+    const reopenedUrl = `${stored}?sig=reopened`
+    const opened = {
+      ...DETAIL,
+      members: [
+        member({ id: 'image-1', data_type: 'image_path', value: stored, value_url: openedUrl, name: 'picture' }),
+      ],
+    }
+    const reopened = {
+      ...opened,
+      members: [
+        member({ id: 'image-1', data_type: 'image_path', value: stored, value_url: reopenedUrl, name: 'picture' }),
+      ],
+    }
+    let rejectRefresh: (err: Error) => void = () => {}
+    jest.spyOn(datasetsApi, 'getSeedExample')
+      .mockResolvedValueOnce(opened)
+      .mockImplementationOnce(() => new Promise((_, reject) => { rejectRefresh = reject }))
+      .mockResolvedValue(reopened)
+
+    function Harness({ exampleId }: { exampleId: string | null }) {
+      const state = useSeedExampleDetail('dataset:named:harmbench', exampleId, false, 'gen-refresh')
+      if (exampleId == null || state.detail == null || state.detail.example_id !== exampleId) return <div>closed</div>
+      return <SeedExampleDetail detail={state.detail} onRefreshUrls={state.refreshDisplayUrls} />
+    }
+
+    const view = render(
+      <FluentProvider theme={webLightTheme}>
+        <Harness exampleId="example-1" />
+      </FluentProvider>,
+    )
+    await user.click(await screen.findByRole('button', { name: 'Show image preview' }))
+    fireEvent.error(screen.getByAltText('picture'))
+    await user.click(screen.getByRole('button', { name: 'Retry image' }))
+    view.rerender(
+      <FluentProvider theme={webLightTheme}>
+        <Harness exampleId={null} />
+      </FluentProvider>,
+    )
+    expect(screen.getByText('closed')).toBeInTheDocument()
+    view.rerender(
+      <FluentProvider theme={webLightTheme}>
+        <Harness exampleId="example-1" />
+      </FluentProvider>,
+    )
+    await screen.findByRole('button', { name: 'Show image preview' })
+    await act(async () => {
+      rejectRefresh(new Error('unavailable'))
+    })
+    expect(screen.queryByText(/Couldn't refresh the link/)).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Show image preview' }))
+    expect(screen.getByAltText('picture')).toHaveAttribute('src', reopenedUrl)
+    expect(screen.queryByText(/Couldn't refresh the link/)).not.toBeInTheDocument()
   })
 })

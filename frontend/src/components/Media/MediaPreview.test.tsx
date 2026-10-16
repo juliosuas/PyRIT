@@ -1,6 +1,6 @@
 import { useState, type ComponentProps } from 'react'
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { FluentProvider, webLightTheme } from '@fluentui/react-components'
 
@@ -189,5 +189,34 @@ describe('MediaPreview', () => {
     await waitFor(() => expect(screen.getByAltText('pic')).toHaveAttribute('src', fresh))
     expect(screen.queryByTestId('image-refresh-error')).not.toBeInTheDocument()
     expect(screen.queryByTestId('image-error')).not.toBeInTheDocument()
+  })
+
+  it('should not show a refresh failure that lands after the preview is closed', async () => {
+    const user = userEvent.setup()
+    let rejectRefresh: (err: Error) => void = () => {}
+    let attempts = 0
+    renderPreview({
+      type: 'image',
+      src: 'https://account.blob.core.windows.net/container/pic.png?sig=expired',
+      alt: 'pic',
+      lazy: true,
+      recovery: true,
+      onRetry: () => {
+        attempts += 1
+        if (attempts === 1) return new Promise((_, reject) => { rejectRefresh = reject })
+        return undefined
+      },
+    })
+    await user.click(screen.getByRole('button', { name: 'Show image preview' }))
+    fireEvent.error(screen.getByAltText('pic'))
+    await user.click(screen.getByRole('button', { name: 'Retry image' }))
+    await user.click(screen.getByRole('button', { name: 'Hide image preview' }))
+    await act(async () => {
+      rejectRefresh(new Error('late'))
+    })
+    await user.click(screen.getByRole('button', { name: 'Show image preview' }))
+    fireEvent.error(screen.getByAltText('pic'))
+    expect(screen.getByTestId('image-error')).toBeInTheDocument()
+    expect(screen.queryByTestId('image-refresh-error')).not.toBeInTheDocument()
   })
 })
