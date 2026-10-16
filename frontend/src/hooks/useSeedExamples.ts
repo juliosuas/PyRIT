@@ -18,7 +18,7 @@ interface SeedExampleDetailState {
   readonly error: ApiError | null
   readonly notFound: boolean
   readonly retry: () => void
-  /** Refetch signed display URLs without clearing the open example. Returns one member's new URL. */
+  /** Refetch one member's display URL. Other members keep the URL already on screen. */
   readonly refreshDisplayUrls: (memberId: string) => Promise<string | null>
 }
 
@@ -172,12 +172,19 @@ export function useSeedExampleDetail(
       throw new Error('A dataset selection key is required to refresh a seed example.')
     }
     const response = await datasetsApi.getSeedExample(exampleId, selectionKey)
+    const refreshed = response.members.find((item) => item.id === memberId)
     setDetail((current) => {
-      if (current == null || current.example_id !== response.example_id) return current
-      return response
+      if (current == null || current.example_id !== response.example_id || refreshed == null) return current
+      let changed = false
+      const members = current.members.map((item) => {
+        if (item.id !== memberId || item.value_url === refreshed.value_url) return item
+        changed = true
+        return { ...item, value_url: refreshed.value_url }
+      })
+      if (!changed) return current
+      return { ...current, members }
     })
-    const member = response.members.find((item) => item.id === memberId)
-    return member?.value_url ?? null
+    return refreshed?.value_url ?? null
   }, [exampleId, exampleRepeated, selectionKey])
 
   return { detail, loading, error, notFound, retry, refreshDisplayUrls }

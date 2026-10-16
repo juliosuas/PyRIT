@@ -160,25 +160,34 @@ describe('MediaPreview', () => {
     expect(screen.getByAltText('pic')).toHaveAttribute('src', fresh)
   })
 
-  it('should stay on the failure when refreshing the signed url fails', async () => {
+  it('should keep the error visible when refreshing the link fails, then allow another retry', async () => {
     const user = userEvent.setup()
-    let settled = false
+    const expired = 'https://account.blob.core.windows.net/container/pic.png?sig=expired'
+    const fresh = 'https://account.blob.core.windows.net/container/pic.png?sig=fresh'
+    let attempts = 0
     renderPreview({
       type: 'image',
-      src: 'https://account.blob.core.windows.net/container/pic.png?sig=expired',
+      src: expired,
       alt: 'pic',
       lazy: true,
       recovery: true,
       onRetry: async () => {
-        settled = true
-        throw new Error('unavailable')
+        attempts += 1
+        if (attempts === 1) throw new Error('unavailable')
+        return fresh
       },
     })
     await user.click(screen.getByRole('button', { name: 'Show image preview' }))
     fireEvent.error(screen.getByAltText('pic'))
     await user.click(screen.getByRole('button', { name: 'Retry image' }))
-    await waitFor(() => expect(settled).toBe(true))
+    await waitFor(() => expect(screen.getByTestId('image-refresh-error')).toHaveTextContent("Couldn't refresh the link."))
     expect(screen.getByTestId('image-error')).toBeInTheDocument()
     expect(screen.queryByAltText('pic')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Retry image' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Retry image' }))
+    await waitFor(() => expect(screen.getByAltText('pic')).toHaveAttribute('src', fresh))
+    expect(screen.queryByTestId('image-refresh-error')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('image-error')).not.toBeInTheDocument()
   })
 })

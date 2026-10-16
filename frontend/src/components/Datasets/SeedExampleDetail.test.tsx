@@ -4,7 +4,9 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event'
 import { FluentProvider, webLightTheme } from '@fluentui/react-components'
 
+import { datasetsApi } from '@/services/api'
 import type { SeedExampleDetailResponse, SeedRecord } from '@/types'
+import { useSeedExampleDetail } from '@/hooks/useSeedExamples'
 
 import SeedExampleDetail from './SeedExampleDetail'
 
@@ -240,5 +242,93 @@ describe('SeedExampleDetail', () => {
     await waitFor(() => expect(screen.getByAltText('image seed')).toHaveAttribute('src', fresh))
     expect(screen.getByTestId('seed-value-image-1')).toHaveTextContent(stored)
     expect(screen.queryByTestId('image-error')).not.toBeInTheDocument()
+  })
+
+  it('should refresh only the retried member and leave the other player on its current url', async () => {
+    const user = userEvent.setup()
+    const imageStored = 'https://account.blob.core.windows.net/container/pic.png'
+    const audioStored = 'https://account.blob.core.windows.net/container/talk.wav'
+    const imageOld = `${imageStored}?sig=old`
+    const audioOld = `${audioStored}?sig=old`
+    const imageNew = `${imageStored}?sig=new`
+    const audioNew = `${audioStored}?sig=new`
+    const initial = {
+      ...DETAIL,
+      members: [
+        member({ id: 'image-1', data_type: 'image_path', value: imageStored, value_url: imageOld, name: 'picture' }),
+        member({ id: 'audio-1', data_type: 'audio_path', value: audioStored, value_url: audioOld, name: 'talk' }),
+      ],
+    }
+    const resigned = {
+      ...initial,
+      members: [
+        member({ id: 'image-1', data_type: 'image_path', value: imageStored, value_url: imageNew, name: 'picture' }),
+        member({ id: 'audio-1', data_type: 'audio_path', value: audioStored, value_url: audioNew, name: 'talk' }),
+      ],
+    }
+    let phase: 'initial' | 'refresh' = 'initial'
+    const spy = jest.spyOn(datasetsApi, 'getSeedExample').mockImplementation(async () => (
+      phase === 'initial' ? initial : resigned
+    ))
+
+    function Harness() {
+      const state = useSeedExampleDetail('dataset:named:harmbench', 'example-1', false, 'gen-1')
+      if (state.detail == null) return null
+      return (
+        <FluentProvider theme={webLightTheme}>
+          <SeedExampleDetail detail={state.detail} onRefreshUrls={state.refreshDisplayUrls} />
+        </FluentProvider>
+      )
+    }
+
+    render(<Harness />)
+    await user.click(await screen.findByRole('button', { name: 'Show audio preview' }))
+    const audio = screen.getByTestId('audio-player')
+    expect(audio).toHaveAttribute('src', audioOld)
+
+    await user.click(screen.getByRole('button', { name: 'Show image preview' }))
+    fireEvent.error(screen.getByAltText('picture'))
+    phase = 'refresh'
+    await user.click(screen.getByRole('button', { name: 'Retry image' }))
+    await waitFor(() => expect(screen.getByAltText('picture')).toHaveAttribute('src', imageNew))
+    expect(screen.getByTestId('audio-player')).toBe(audio)
+    expect(audio).toHaveAttribute('src', audioOld)
+    expect(spy).toHaveBeenCalled()
+  })
+
+  it('should not put a refreshed active url on the download link', async () => {
+    const user = userEvent.setup()
+    const stored = 'https://account.blob.core.windows.net/container/pic.png'
+    const expired = `${stored}?sig=expired`
+    const html = 'data:text/html,<script>alert(1)</script>'
+
+    function Harness() {
+      const [url, setUrl] = useState(expired)
+      return (
+        <FluentProvider theme={webLightTheme}>
+          <SeedExampleDetail
+            detail={{
+              ...DETAIL,
+              members: [
+                member({ id: 'image-1', data_type: 'image_path', value: stored, value_url: url, name: null }),
+              ],
+            }}
+            onRefreshUrls={async () => {
+              setUrl(html)
+              return html
+            }}
+          />
+        </FluentProvider>
+      )
+    }
+
+    render(<Harness />)
+    await user.click(screen.getByRole('button', { name: 'Show image preview' }))
+    fireEvent.error(screen.getByAltText('image seed'))
+    await user.click(screen.getByRole('button', { name: 'Retry image' }))
+    await waitFor(() => expect(screen.getByText('This format cannot be previewed.')).toBeInTheDocument())
+    expect(document.body.innerHTML).not.toContain('data:text/html')
+    expect(screen.queryByRole('link')).not.toBeInTheDocument()
+    expect(document.querySelector('img')).toBeNull()
   })
 })

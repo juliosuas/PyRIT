@@ -196,6 +196,36 @@ describe('useSeedExampleDetail', () => {
     expect(mockDetail).toHaveBeenCalledTimes(2)
   })
 
+  it('refreshes only the requested member when the response re-signs every blob', async () => {
+    const image = 'https://account.blob.core.windows.net/container/pic.png'
+    const audio = 'https://account.blob.core.windows.net/container/talk.wav'
+    const opened = {
+      ...DETAIL,
+      members: [
+        { id: 'image-1', value: image, value_url: `${image}?sig=old` },
+        { id: 'audio-1', value: audio, value_url: `${audio}?sig=old` },
+      ],
+    } as SeedExampleDetailResponse
+    const resigned = {
+      ...DETAIL,
+      members: [
+        { id: 'image-1', value: image, value_url: `${image}?sig=new` },
+        { id: 'audio-1', value: audio, value_url: `${audio}?sig=new` },
+      ],
+    } as SeedExampleDetailResponse
+    mockDetail.mockResolvedValueOnce(opened).mockResolvedValueOnce(resigned)
+    const { result } = renderHook(() => useSeedExampleDetail('dataset:named:harmbench', 'example-1', false, 'gen-1'))
+    await waitFor(() => expect(result.current.detail?.members).toHaveLength(2))
+
+    await act(async () => {
+      await result.current.refreshDisplayUrls('image-1')
+    })
+    expect(result.current.detail?.members[0]?.value_url).toBe(`${image}?sig=new`)
+    expect(result.current.detail?.members[0]?.value).toBe(image)
+    expect(result.current.detail?.members[1]?.value_url).toBe(`${audio}?sig=old`)
+    expect(result.current.detail?.members[1]).toBe(opened.members[1])
+  })
+
   it('keeps the open example when a display-url refresh fails', async () => {
     const stored = 'https://account.blob.core.windows.net/container/pic.png'
     const expired = {

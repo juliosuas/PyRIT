@@ -149,7 +149,15 @@ function MemberMedia({
     ? undefined
     : async (): Promise<string | void> => {
       const next = await onRefreshUrls(member.id)
-      return next ?? undefined
+      if (next == null || next.trim() === '') return undefined
+      // Same allowlist as the first paint. A refreshed data: or active URL must not become the download.
+      const remapped = mapMediaUrl({
+        dataType: member.data_type,
+        value: member.value,
+        valueUrl: next,
+      })
+      if (remapped.status !== 'preview') return undefined
+      return remapped.url
     }
   return (
     <MediaPreview

@@ -64,16 +64,21 @@ function RecoveryActions({
   type,
   src,
   onRetry,
+  refreshFailed,
 }: {
   type: MediaPreviewProps['type']
   src: string
   onRetry: () => void
+  refreshFailed: boolean
 }) {
   const styles = useMediaPreviewStyles()
   const label = type === 'image' ? 'image' : type === 'audio' ? 'audio' : 'video'
   return (
     <div className={styles.recovery}>
       <Text size={200} italic data-testid={`${type}-error`}>{failureMessage(type, true)}</Text>
+      {refreshFailed
+        ? <Text size={200} data-testid={`${type}-refresh-error`}>{"Couldn't refresh the link."}</Text>
+        : null}
       <div className={styles.actions}>
         <Button className={styles.button} appearance="secondary" onClick={() => { void onRetry() }}>
           {`Retry ${label}`}
@@ -110,6 +115,7 @@ export default function MediaPreview({
   const [open, setOpen] = useState(!lazy)
   const [loaded, setLoaded] = useState(false)
   const [error, setError] = useState(false)
+  const [refreshFailed, setRefreshFailed] = useState(false)
   const [attempt, setAttempt] = useState(0)
   // Hold a refreshed URL until the src prop catches up, without an effect.
   const [replacement, setReplacement] = useState<{ readonly from: string; readonly next: string } | null>(null)
@@ -131,8 +137,10 @@ export default function MediaPreview({
     try {
       const next = await onRetry?.()
       if (typeof next === 'string' && next.length > 0) setReplacement({ from: src, next })
+      setRefreshFailed(false)
       return true
     } catch {
+      setRefreshFailed(true)
       return false
     }
   }
@@ -181,7 +189,7 @@ export default function MediaPreview({
         {!loaded && !error && <Spinner size="small" className={spinnerClassName ?? styles.spinner} />}
         {error
           ? (recovery
-            ? <RecoveryActions type={type} src={activeSrc} onRetry={retry} />
+            ? <RecoveryActions type={type} src={activeSrc} onRetry={retry} refreshFailed={refreshFailed} />
             : <Text size={200} italic data-testid="image-error">{failureMessage(type, false)}</Text>)
           : <img
               key={attempt}
@@ -202,7 +210,7 @@ export default function MediaPreview({
       <>
         {hideButton}
         {recovery
-          ? <RecoveryActions type={type} src={activeSrc} onRetry={retry} />
+          ? <RecoveryActions type={type} src={activeSrc} onRetry={retry} refreshFailed={refreshFailed} />
           : <Text size={200} italic data-testid={`${type}-error`}>{failureMessage(type, false)}</Text>}
       </>
     )
