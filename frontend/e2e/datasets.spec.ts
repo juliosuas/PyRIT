@@ -745,7 +745,7 @@ test.describe("dataset media previews", () => {
 
     const mediaRequests: string[] = [];
     page.on("request", (request) => {
-      if (request.url().includes("blob.core.windows.net")) mediaRequests.push(request.url());
+      if (new URL(request.url()).hostname === "account.blob.core.windows.net") mediaRequests.push(request.url());
     });
     await page.goto(`/datasets/detail?selection_key=${encodeURIComponent(DATASET.selection_key)}&example=example-1`);
     const detail = page.getByRole("region", { name: "Example detail" });
@@ -800,7 +800,7 @@ test.describe("dataset media previews", () => {
     });
     const mediaRequests: string[] = [];
     page.on("request", (request) => {
-      if (request.url().includes("blob.core.windows.net")) mediaRequests.push(request.url());
+      if (new URL(request.url()).hostname === "account.blob.core.windows.net") mediaRequests.push(request.url());
     });
 
     await page.goto(`/datasets/detail?selection_key=${encodeURIComponent(DATASET.selection_key)}&example=example-1`);
