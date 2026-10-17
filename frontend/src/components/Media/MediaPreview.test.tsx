@@ -219,4 +219,22 @@ describe('MediaPreview', () => {
     expect(screen.getByTestId('image-error')).toBeInTheDocument()
     expect(screen.queryByTestId('image-refresh-error')).not.toBeInTheDocument()
   })
+
+  it('should not retry the current url when the refresh is aborted', async () => {
+    const user = userEvent.setup()
+    renderPreview({
+      type: 'image',
+      src: 'https://account.blob.core.windows.net/container/pic.png?sig=expired',
+      alt: 'pic',
+      lazy: true,
+      recovery: true,
+      onRetry: () => Promise.reject(new DOMException('The example changed before the link refreshed.', 'AbortError')),
+    })
+    await user.click(screen.getByRole('button', { name: 'Show image preview' }))
+    fireEvent.error(screen.getByAltText('pic'))
+    await user.click(screen.getByRole('button', { name: 'Retry image' }))
+    expect(screen.getByTestId('image-error')).toBeInTheDocument()
+    expect(screen.queryByTestId('image-refresh-error')).not.toBeInTheDocument()
+    expect(screen.queryByAltText('pic')).not.toBeInTheDocument()
+  })
 })

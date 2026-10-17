@@ -26,6 +26,10 @@ export interface MediaPreviewProps {
   readonly onRetry?: () => Promise<string | void> | string | void
 }
 
+function isAbortError(err: unknown): boolean {
+  return typeof err === 'object' && err != null && 'name' in err && (err as { name?: string }).name === 'AbortError'
+}
+
 function stopPlayback(media: HTMLMediaElement | null): void {
   if (!media || media.paused) return
   media.pause()
@@ -148,8 +152,8 @@ export default function MediaPreview({
       if (typeof next === 'string' && next.length > 0) setReplacement({ from: src, next })
       setRefreshFailed(false)
       return true
-    } catch {
-      if (serial !== refreshSerial.current) return false
+    } catch (err: unknown) {
+      if (serial !== refreshSerial.current || isAbortError(err)) return false
       setRefreshFailed(true)
       return false
     }

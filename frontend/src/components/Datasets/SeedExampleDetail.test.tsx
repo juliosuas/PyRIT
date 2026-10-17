@@ -389,4 +389,52 @@ describe('SeedExampleDetail', () => {
     expect(screen.getByAltText('picture')).toHaveAttribute('src', reopenedUrl)
     expect(screen.queryByText(/Couldn't refresh the link/)).not.toBeInTheDocument()
   })
+
+  it('should keep a member refresh alive when another member is retried', async () => {
+    const user = userEvent.setup()
+    const imageStored = 'https://account.blob.core.windows.net/container/pic.png'
+    const audioStored = 'https://account.blob.core.windows.net/container/talk.wav'
+    const imageOld = `${imageStored}?sig=old`
+    const audioOld = `${audioStored}?sig=old`
+    const opened = {
+      ...DETAIL,
+      members: [
+        member({ id: 'image-1', data_type: 'image_path', value: imageStored, value_url: imageOld, name: 'picture' }),
+        member({ id: 'audio-1', data_type: 'audio_path', value: audioStored, value_url: audioOld, name: 'talk' }),
+      ],
+    }
+    let rejectImage: (err: Error) => void = () => {}
+    let imageCalls = 0
+    jest.spyOn(datasetsApi, 'getSeedExample').mockImplementation(() => {
+      imageCalls += 1
+      if (imageCalls === 1) return Promise.resolve(opened)
+      if (imageCalls === 2) return new Promise((_, reject) => { rejectImage = reject })
+      return new Promise(() => {})
+    })
+
+    function Harness() {
+      const state = useSeedExampleDetail('dataset:named:harmbench', 'example-1', false, 'gen-1')
+      if (state.detail == null) return null
+      return (
+        <FluentProvider theme={webLightTheme}>
+          <SeedExampleDetail detail={state.detail} onRefreshUrls={state.refreshDisplayUrls} />
+        </FluentProvider>
+      )
+    }
+
+    render(<Harness />)
+    await user.click(await screen.findByRole('button', { name: 'Show image preview' }))
+    fireEvent.error(screen.getByAltText('picture'))
+    await user.click(screen.getByRole('button', { name: 'Retry image' }))
+    await user.click(screen.getByRole('button', { name: 'Show audio preview' }))
+    fireEvent.error(screen.getByTestId('audio-player'))
+    await user.click(screen.getByRole('button', { name: 'Retry audio' }))
+    await act(async () => {
+      rejectImage(new Error('unavailable'))
+    })
+    expect(await screen.findByTestId('image-refresh-error')).toHaveTextContent("Couldn't refresh the link.")
+    expect(screen.queryByTestId('audio-refresh-error')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Retry audio' })).toBeInTheDocument()
+    expect(screen.queryByAltText('picture')).not.toBeInTheDocument()
+  })
 })

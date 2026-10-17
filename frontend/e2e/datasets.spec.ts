@@ -768,7 +768,8 @@ test.describe("dataset media previews", () => {
   test("ignores a media refresh that finishes after the example is closed", async ({ page }) => {
     const stored = "https://account.blob.core.windows.net/container/pic.png";
     const opened = `${stored}?sig=opened`;
-    const reopened = `${stored}?sig=reopened`;
+    const reopened = `${stored}?sig=newly-opened`;
+    const olderRefresh = `${stored}?sig=older-refresh`;
     let mode: "opened" | "hold" | "reopened" = "opened";
     let releaseHeld: () => void = () => {};
     const held = new Promise<void>((resolve) => {
@@ -788,9 +789,9 @@ test.describe("dataset media previews", () => {
         await held;
         try {
           await route.fulfill({
-            status: 500,
+            status: 200,
             contentType: "application/json",
-            body: JSON.stringify({ detail: "unavailable" }),
+            body: JSON.stringify(detailFor(olderRefresh)),
           });
         } catch {
           // The example was closed, so the browser aborted this refresh.
@@ -805,7 +806,7 @@ test.describe("dataset media previews", () => {
       });
     });
     await page.context().route("https://account.blob.core.windows.net/**", async (route) => {
-      if (route.request().url().includes("sig=reopened")) {
+      if (route.request().url().includes("sig=newly-opened")) {
         await route.fulfill({
           status: 200,
           contentType: "image/png",
