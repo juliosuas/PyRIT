@@ -121,6 +121,7 @@ export default function MediaPreview({
   const [loaded, setLoaded] = useState(false)
   const [error, setError] = useState(false)
   const [refreshFailed, setRefreshFailed] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
   const [attempt, setAttempt] = useState(0)
   // Hold a refreshed URL until the src prop catches up, without an effect.
   const [replacement, setReplacement] = useState<{ readonly from: string; readonly next: string } | null>(null)
@@ -146,6 +147,8 @@ export default function MediaPreview({
 
   const refreshDisplayUrl = async (): Promise<boolean> => {
     const serial = ++refreshSerial.current
+    setRefreshing(true)
+    setRefreshFailed(false)
     try {
       const next = await onRetry?.()
       if (serial !== refreshSerial.current) return false
@@ -156,6 +159,8 @@ export default function MediaPreview({
       if (serial !== refreshSerial.current || isAbortError(err)) return false
       setRefreshFailed(true)
       return false
+    } finally {
+      if (serial === refreshSerial.current) setRefreshing(false)
     }
   }
 
@@ -170,7 +175,7 @@ export default function MediaPreview({
   const reveal = async (): Promise<void> => {
     // The first open uses the URL from the detail that was just loaded.
     // Showing it again, after Hide, asks for a new signature first.
-    if (openedOnce.current) await refreshDisplayUrl()
+    if (openedOnce.current && !(await refreshDisplayUrl())) return
     openedOnce.current = true
     setOpen(true)
   }
@@ -181,14 +186,28 @@ export default function MediaPreview({
     setOpen(false)
     setError(false)
     setRefreshFailed(false)
+    setRefreshing(false)
     setLoaded(false)
   }
 
   if (!open) {
     return (
-      <Button className={styles.button} appearance="secondary" onClick={() => { void reveal() }}>
-        {`Show ${type} preview`}
-      </Button>
+      <>
+        <Button
+          className={styles.button}
+          appearance="secondary"
+          disabled={refreshing}
+          aria-busy={refreshing}
+          onClick={() => { void reveal() }}
+        >
+          {`Show ${type} preview`}
+        </Button>
+        {refreshFailed && (
+          <Text size={200} role="alert" data-testid={`${type}-refresh-error`}>
+            {"Couldn't refresh the link. Try showing the preview again."}
+          </Text>
+        )}
+      </>
     )
   }
 

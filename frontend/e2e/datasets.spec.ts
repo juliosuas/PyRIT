@@ -765,6 +765,73 @@ test.describe("dataset media previews", () => {
     await expect(page.getByRole("region", { name: "Example detail" })).toBeVisible();
   });
 
+  test("keeps media hidden while a repeated Show waits for its refreshed url", async ({ page }) => {
+    const stored = "https://account.blob.core.windows.net/container/pic.png";
+    const opened = `${stored}?sig=opened`;
+    const fresh = `${stored}?sig=fresh`;
+    const portrait = readFileSync(new URL("./fixtures/portrait-600x1200.png", import.meta.url));
+    let reopening = false;
+    let refreshRequests = 0;
+    let finishRefresh: () => void = () => {};
+    const refreshed = new Promise<void>((resolve) => { finishRefresh = resolve; });
+    const detailFor = (signature: string) => ({
+      ...EXAMPLE_DETAIL,
+      members: [mediaMember("image-1", "image_path", stored, signature)],
+    });
+    await mockDatasetExamples(page, detailFor(opened));
+    await page.route("**/api/datasets/seeds/example-1**", async (route) => {
+      const signature = reopening ? fresh : opened;
+      if (reopening) {
+        refreshRequests += 1;
+        await refreshed;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(detailFor(signature)),
+      });
+    });
+    await page.context().route("https://account.blob.core.windows.net/**", async (route) => {
+      if (reopening && route.request().url() === opened) {
+        await route.fulfill({ status: 403, contentType: "text/plain", body: "expired" });
+        return;
+      }
+      await route.fulfill({ status: 200, contentType: "image/png", body: portrait });
+    });
+    const mediaRequests: string[] = [];
+    page.on("request", (request) => {
+      if (request.url().includes("blob.core.windows.net")) mediaRequests.push(request.url());
+    });
+
+    await page.goto(`/datasets/detail?selection_key=${encodeURIComponent(DATASET.selection_key)}&example=example-1`);
+    const detail = page.getByRole("region", { name: "Example detail" });
+    await detail.getByRole("button", { name: "Show image preview" }).click();
+    const image = detail.locator("img");
+    await expect.poll(() => image.evaluate((element: HTMLImageElement) => element.naturalWidth)).toBe(600);
+    await detail.getByRole("button", { name: "Hide image preview" }).click();
+
+    reopening = true;
+    const show = detail.getByRole("button", { name: "Show image preview" });
+    const refreshStarted = page.waitForRequest((request) => request.url().includes("/api/datasets/seeds/example-1"));
+    try {
+      await show.dblclick();
+      await refreshStarted;
+      await expect(show).toBeDisabled();
+      await expect(show).toHaveAttribute("aria-busy", "true");
+      expect(refreshRequests).toBe(1);
+      await expect(image).toHaveCount(0);
+      expect(mediaRequests).toEqual([opened]);
+    } finally {
+      finishRefresh();
+    }
+
+    await expect(image).toHaveAttribute("src", fresh);
+    await expect.poll(() => image.evaluate((element: HTMLImageElement) => element.naturalWidth)).toBe(600);
+    expect(mediaRequests).toEqual([opened, fresh]);
+    await expect(detail.getByText(/Image failed to load/)).toHaveCount(0);
+    await expect(detail.getByTestId("seed-value-image-1")).toHaveText(stored);
+  });
+
   test("ignores a media refresh that finishes after the example is closed", async ({ page }) => {
     const stored = "https://account.blob.core.windows.net/container/pic.png";
     const opened = `${stored}?sig=opened`;
