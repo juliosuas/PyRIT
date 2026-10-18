@@ -11,9 +11,6 @@ export interface UseAttackMutationsOptions {
   lastResponseMessagePieceId?: string | null
   humanScore?: BackendScore | null
   isScoreLocked: boolean
-  /** Objective changes go to the conversation editor while it is open. */
-  isEditingDraft: boolean
-  setEditorObjective: (objective: string) => void
   loadConversation: (attackResultId: string, conversationId: string) => Promise<void>
   getViewedConversationId: () => string | null
   onHumanScoreChange?: (score: BackendScore | null, outcome: AttackOutcome) => void
@@ -39,8 +36,6 @@ export function useAttackMutations({
   lastResponseMessagePieceId,
   humanScore,
   isScoreLocked,
-  isEditingDraft,
-  setEditorObjective,
   loadConversation,
   getViewedConversationId,
   onHumanScoreChange,
@@ -103,10 +98,6 @@ export function useAttackMutations({
   ])
 
   const changeObjective = useCallback(async (newObjective: string, expectedObjective: string): Promise<void> => {
-    if (isEditingDraft) {
-      setEditorObjective(newObjective)
-      return
-    }
     if (!attackResultId) {
       setPendingObjective(newObjective)
       return
@@ -115,7 +106,7 @@ export function useAttackMutations({
     const updatedAttack = await attacksApi.updateAttack(attackResultId, { objective: newObjective, expected_objective: expectedObjective })
     onAttackChange?.(updatedAttack)
     onObjectiveChange?.(updatedAttack.objective)
-  }, [attackResultId, onAttackChange, onObjectiveChange, isEditingDraft, setEditorObjective])
+  }, [attackResultId, onAttackChange, onObjectiveChange])
 
   return {
     pendingObjective,

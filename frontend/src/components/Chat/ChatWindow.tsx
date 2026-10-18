@@ -637,8 +637,6 @@ export default function ChatWindow({
     lastResponseMessagePieceId,
     humanScore,
     isScoreLocked,
-    isEditingDraft: editDraft !== null,
-    setEditorObjective,
     loadConversation,
     getViewedConversationId,
     onHumanScoreChange,
@@ -1461,6 +1459,14 @@ export default function ChatWindow({
     isMutationLocked,
   ])
 
+  const handleAddObjective = useCallback(async (newObjective: string, expectedObjective: string): Promise<void> => {
+    if (editDraft !== null) {
+      setEditorObjective(newObjective)
+      return
+    }
+    await changeObjective(newObjective, expectedObjective)
+  }, [changeObjective, editDraft, setEditorObjective])
+
   const beginEdit = async (
     target: TargetInstance | null = activeTarget,
   ): Promise<void> => {
@@ -2029,7 +2035,7 @@ export default function ChatWindow({
             && !awaitingConversationLoad
             && (editDraft !== null || !isOperatorLocked)
           }
-          onAdd={changeObjective}
+          onAdd={handleAddObjective}
           onAddFinding={() => setIsFindingDialogOpen(true)}
           canAddFinding={!isFindingActionDisabled}
           outcomeButtonRef={outcomeButtonRef}

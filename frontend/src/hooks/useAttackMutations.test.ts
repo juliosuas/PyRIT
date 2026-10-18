@@ -1,6 +1,7 @@
 import { act, renderHook } from '@testing-library/react'
 
 import { attacksApi, scoresApi } from '@/services/api'
+import { deferred } from '@/test-utils/deferred'
 import type { AttackSummary, BackendScore } from '@/types'
 
 import { useAttackMutations } from './useAttackMutations'
@@ -10,22 +11,6 @@ jest.mock('@/services/api', () => ({
   attacksApi: { removeHumanScore: jest.fn(), updateAttack: jest.fn() },
   scoresApi: { createManualScore: jest.fn() },
 }))
-
-interface Deferred<T> {
-  promise: Promise<T>
-  resolve: (value: T) => void
-  reject: (cause: unknown) => void
-}
-
-function deferred<T>(): Deferred<T> {
-  let resolve: (value: T) => void = () => {}
-  let reject: (cause: unknown) => void = () => {}
-  const promise = new Promise<T>((onResolve, onReject) => {
-    resolve = onResolve
-    reject = onReject
-  })
-  return { promise, resolve, reject }
-}
 
 const attack: AttackSummary = {
   attack_result_id: 'attack', conversation_id: 'main', attack_type: 'ManualAttack', objective: 'Updated objective',
@@ -41,8 +26,6 @@ function renderMutations(overrides: Partial<UseAttackMutationsOptions> = {}) {
     lastResponseMessagePieceId: 'piece',
     humanScore: score,
     isScoreLocked: false,
-    isEditingDraft: false,
-    setEditorObjective: jest.fn(),
     loadConversation: jest.fn().mockResolvedValue(undefined),
     getViewedConversationId: () => 'main',
     onHumanScoreChange: jest.fn(),
@@ -183,15 +166,6 @@ describe('useAttackMutations', () => {
         objective: 'New objective', expected_objective: 'Objective',
       })
       expect(calls).toEqual(['attack', 'objective:Updated objective'])
-    })
-
-    it('should send the objective to the editor while a draft is open', async () => {
-      const { result, options } = renderMutations({ isEditingDraft: true })
-
-      await act(async () => { await result.current.changeObjective('Draft objective', 'Objective') })
-
-      expect(options.setEditorObjective).toHaveBeenCalledWith('Draft objective')
-      expect(attacksApi.updateAttack).not.toHaveBeenCalled()
     })
 
     it('should keep a pending objective until the attack exists and clear it on reset', async () => {

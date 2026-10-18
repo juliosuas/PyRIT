@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 
 import type { Message } from '@/types'
 import { exportConversation } from '@/utils/conversationExport'
@@ -31,7 +31,7 @@ export function useConversationExport({
   // Read-only / operator-lock / cross-target states do not block export.
   const canExport = messages.some((message) => !message.isLoading && message.role !== 'system') && !blocked
 
-  const exportAs = useCallback(async (format: ExportFormat): Promise<void> => {
+  const exportAs = async (format: ExportFormat): Promise<void> => {
     // A ref, not the state flag: two clicks in the same tick would both read
     // the pre-render value and start duplicate exports.
     if (isExportingRef.current) {
@@ -47,7 +47,7 @@ export function useConversationExport({
       isExportingRef.current = false
       setIsExporting(false)
     }
-  }, [messages, conversationId])
+  }
 
   return { canExport, isExporting, exportAs }
 }
