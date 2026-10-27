@@ -577,3 +577,22 @@ def test_template_loaded_once_at_construction(tmp_path):
     converter = CodeAttackConverter(template=custom, encoding=Encoding.PYTHON_STRING)
     custom.unlink()
     assert converter._seed_prompt is not None
+
+
+@pytest.mark.parametrize("encoding", list(Encoding), ids=lambda v: v.name)
+def test_encode_dispatches_every_encoding(encoding: Encoding) -> None:
+    """Every Encoding member is handled by _encode and uses its own encoder."""
+    converter = CodeAttackConverter(template=Template.PYTHON_STACK)
+    converter._encoding = encoding
+    expected = getattr(converter, f"_encode_{encoding.name.lower()}")("hello world")
+
+    assert converter._encode("hello world") == expected
+
+
+def test_encode_rejects_unknown_encoding() -> None:
+    """An encoding outside the Encoding enum is still rejected with ValueError."""
+    converter = CodeAttackConverter(template=Template.PYTHON_STACK)
+    converter._encoding = "future_encoding"  # type: ignore[assignment]
+
+    with pytest.raises(ValueError, match="Unsupported encoding: 'future_encoding'"):
+        converter._encode("hello world")
